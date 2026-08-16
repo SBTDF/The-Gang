@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { socket } from '../socket';
 import { useGameStore } from '../store/gameStore';
 import { evaluateBestHand, formatCardLabel, getHighlightCardKeys } from '../utils/handUtils';
@@ -18,6 +19,7 @@ const PHASE_HINTS = {
 };
 
 const EMOTE_BUBBLE_CLASS = 'pointer-events-none absolute left-full top-1/2 z-30 ml-2 w-max max-w-[min(70vw,260px)] -translate-y-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-3 py-1.5 text-sm font-semibold leading-tight text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse transition-opacity duration-200';
+const OPPONENT_EMOTE_BUBBLE_CLASS = 'pointer-events-none fixed z-[100] w-max max-w-[min(70vw,260px)] rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-3 py-1.5 text-sm font-semibold leading-tight text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse';
 
 export default function GameTable() {
   const {
@@ -681,13 +683,14 @@ function PlayerSlot({
   emote,
   now,
 }) {
+  const slotRef = useRef(null);
   const chipVal = isChipPhase ? roundSelections?.[player.id] ?? player.chips?.[currentChipColor] ?? null : player.chips?.[currentChipColor] ?? null;
   const isConfirmed = !!roundConfirmed?.[player.id];
   const emoteAge = emote ? (now - (emote.createdAt ?? Date.now())) : 0;
   const emoteOpacity = emote ? Math.max(0, 1 - emoteAge / 1500) : 0;
 
   return (
-    <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10 overflow-visible">
+    <div ref={slotRef} className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10 overflow-visible">
       <div className="flex gap-0.5">
         {showCards && player.cards ? (
           player.cards.map((c, i) => <Card key={i} card={c} size="sm" />)
@@ -699,12 +702,7 @@ function PlayerSlot({
         )}
       </div>
       {emote && (
-        <div
-          className={EMOTE_BUBBLE_CLASS}
-          style={{ opacity: emoteOpacity }}
-        >
-          {emote.text}
-        </div>
+        <OpponentEmoteBubble anchorRef={slotRef} emote={emote} opacity={emoteOpacity} />
       )}
       <button
         type="button"
@@ -752,5 +750,80 @@ function PlayerSlot({
           ))}
       </div>
     </div>
+  );
+}
+
+function OpponentEmoteBubble({ anchorRef, emote, opacity }) {
+  const bubbleRef = useRef(null);
+  const [position, setPosition] = useState(null);
+
+  useLayoutEffect(() => {
+    let frame = null;
+
+    const updatePosition = () => {
+      if (!anchorRef.current || !bubbleRef.current) return;
+
+      const anchorRect = anchorRef.current.getBoundingClientRect();
+      const bubbleRect = bubbleRef.current.getBoundingClientRect();
+      const gap = 8;
+      const viewportPadding = 8;
+      const rightPosition = anchorRect.right + gap;
+      const leftPosition = anchorRect.left - bubbleRect.width - gap;
+
+      let left = rightPosition;
+      if (rightPosition + bubbleRect.width > window.innerWidth - viewportPadding && leftPosition >= viewportPadding) {
+        left = leftPosition;
+      }
+
+      left = Math.max(
+        viewportPadding,
+        Math.min(left, window.innerWidth - bubbleRect.width - viewportPadding)
+      );
+
+      const centeredTop = anchorRect.top + (anchorRect.height - bubbleRect.height) / 2;
+      const top = Math.max(
+        viewportPadding,
+        Math.min(centeredTop, window.innerHeight - bubbleRect.height - viewportPadding)
+      );
+
+      setPosition({ left, top });
+    };
+
+    const schedulePositionUpdate = () => {
+      if (frame != null) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(updatePosition);
+    };
+
+    schedulePositionUpdate();
+    window.addEventListener('resize', schedulePositionUpdate);
+    window.addEventListener('scroll', schedulePositionUpdate, true);
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedulePositionUpdate) : null;
+    if (resizeObserver && anchorRef.current) resizeObserver.observe(anchorRef.current);
+
+    return () => {
+      if (frame != null) cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedulePositionUpdate);
+      window.removeEventListener('scroll', schedulePositionUpdate, true);
+      resizeObserver?.disconnect();
+    };
+  }, [anchorRef, emote.id, emote.createdAt, emote.text]);
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div
+      ref={bubbleRef}
+      className={OPPONENT_EMOTE_BUBBLE_CLASS}
+      style={{
+        left: position ? `${position.left}px` : '0px',
+        top: position ? `${position.top}px` : '0px',
+        opacity,
+        visibility: position ? 'visible' : 'hidden',
+      }}
+    >
+      {emote.text}
+    </div>,
+    document.body
   );
 }
