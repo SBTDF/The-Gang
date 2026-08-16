@@ -10,5 +10,5 @@ services:
       - key: NODE_ENV
         value: production
       - key: CLIENT_URL
-        value: "https://<YOUR_VERCEL_URL>" # replace after Vercel deploy
+        value: "*"
     autoDeploy: true
