@@ -159,4 +159,50 @@ export function formatCardLabel(card) {
   return `${card.rank}${SUIT_SYMBOLS[card.suit]}`;
 }
 
+export function getHighlightCardKeys(bestHand) {
+  if (!bestHand || !bestHand.combo || bestHand.combo.length === 0) return [];
+
+  const byRank = new Map();
+  for (const card of bestHand.combo) {
+    const key = `${card.rank}-${card.suit}`;
+    const rankKey = String(card.rank);
+    if (!byRank.has(rankKey)) byRank.set(rankKey, []);
+    byRank.get(rankKey).push(key);
+  }
+
+  const rankGroups = [...byRank.entries()].map(([rank, keys]) => ({ rank, keys }));
+  const handName = bestHand.name || '';
+
+  if (handName === 'Pair') {
+    const pairGroup = rankGroups.find((entry) => entry.keys.length === 2);
+    return pairGroup ? pairGroup.keys : [];
+  }
+
+  if (handName === 'Two Pair') {
+    const pairGroups = rankGroups.filter((entry) => entry.keys.length === 2);
+    return pairGroups.flatMap((entry) => entry.keys);
+  }
+
+  if (handName === 'Three of a Kind') {
+    const tripGroup = rankGroups.find((entry) => entry.keys.length === 3);
+    return tripGroup ? tripGroup.keys : [];
+  }
+
+  if (handName === 'Four of a Kind') {
+    const quadGroup = rankGroups.find((entry) => entry.keys.length === 4);
+    return quadGroup ? quadGroup.keys : [];
+  }
+
+  if (handName === 'Full House') {
+    return bestHand.combo.map((card) => `${card.rank}-${card.suit}`);
+  }
+
+  if (['Straight', 'Flush', 'Straight Flush', 'Royal Flush', 'High Card'].includes(handName)) {
+    if (handName === 'High Card') return [];
+    return bestHand.combo.map((card) => `${card.rank}-${card.suit}`);
+  }
+
+  return [];
+}
+
 export { HAND_NAMES };

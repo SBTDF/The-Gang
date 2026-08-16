@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { socket } from '../socket';
 import { useGameStore } from '../store/gameStore';
-import { evaluateBestHand, formatCardLabel } from '../utils/handUtils';
+import { evaluateBestHand, formatCardLabel, getHighlightCardKeys } from '../utils/handUtils';
 import Card from './Card';
 import Chip from './Chip';
 import VaultAlarm from './VaultAlarm';
@@ -82,6 +82,10 @@ export default function GameTable() {
     if (!myCards?.length || !communityCards) return null;
     return evaluateBestHand(myCards, communityCards);
   }, [myCards, communityCards]);
+
+  const myHighlightKeys = useMemo(() => getHighlightCardKeys(myBestHand), [myBestHand]);
+  const currentSelfChip = isChipPhase ? (myRoundChoice ?? me?.chips?.[currentChipColor] ?? null) : (me?.chips?.[currentChipColor] ?? null);
+  const selfPastChips = ['white', 'yellow', 'orange', 'red'].filter((chipColor) => chipColor !== currentChipColor && me?.chips?.[chipColor] != null);
 
   const submitChallengeVote = (confirm = false) => {
     if (!guessPhase || myId === guessPhase.targetPlayerId || challengeLocked) return;
@@ -364,8 +368,8 @@ export default function GameTable() {
                               setChallengeVote((prev) => ({ ...prev, cardRank: rank }));
                             }}
                             className={`rounded-lg border px-3 py-2 text-sm transition-all ${challengeVote.cardRank === rank
-                                ? 'border-gold bg-gold/20 text-gold'
-                                : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
                               }`}
                           >
                             <span className="flex items-center gap-2">
@@ -394,8 +398,8 @@ export default function GameTable() {
                               setChallengeVote((prev) => ({ ...prev, handRank: rank }));
                             }}
                             className={`rounded-lg border px-3 py-2 text-sm transition-all ${challengeVote.handRank === rank
-                                ? 'border-gold bg-gold/20 text-gold'
-                                : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
                               }`}
                           >
                             <span className="flex items-center gap-2">
@@ -474,35 +478,50 @@ export default function GameTable() {
               </div>
               <div className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-black/20 px-2 py-2 shadow-[0_8px_18px_rgba(0,0,0,0.15)]">
                 <span className="text-sm font-medium text-gold">{me?.name} (bạn)</span>
-                {currentChipColor && me?.chips?.[currentChipColor] != null && (
+                {currentSelfChip != null && (
                   <Chip
-                    value={me.chips[currentChipColor]}
+                    value={currentSelfChip}
                     color={currentChipColor}
                     small
-                    onClick={() => setSelectedChip(me.chips[currentChipColor])}
-                    selected={selectedChip === me.chips[currentChipColor]}
+                    onClick={() => setSelectedChip(currentSelfChip)}
+                    selected={selectedChip === currentSelfChip}
                   />
                 )}
-                <button
-                  type="button"
-                  onClick={() => setEmoteTarget(myId)}
-                  className="text-xs text-white/40 hover:text-white/70 mt-1"
-                >
-                  💬
-                </button>
+                {selfPastChips.length > 0 && (
+                  <div className="flex gap-0.5">
+                    {selfPastChips.map((chipColor) => (
+                      <Chip key={`${me?.id ?? 'me'}-${chipColor}`} value={me.chips[chipColor]} color={chipColor} small />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
             {myBestHand && (
               <div className="glass-panel mt-3 mx-auto max-w-xl rounded-2xl p-3 text-left shadow-[0_15px_28px_rgba(0,0,0,0.18)] border border-gold/20">
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Best hand</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Best hand</span>
+                    <button
+                      type="button"
+                      onClick={() => setEmoteTarget(myId)}
+                      className="text-xs text-white/50 hover:text-white/80"
+                      aria-label="Send emote"
+                    >
+                      💬
+                    </button>
+                  </div>
                   <span className="text-sm font-semibold text-white">{myBestHand.name}</span>
                 </div>
 
                 <div className="mb-2 flex flex-wrap gap-2">
                   {myBestHand.combo?.map((card, index) => (
-                    <Card key={`${card.rank}-${card.suit}-${index}`} card={card} size="sm" highlight />
+                    <Card
+                      key={`${card.rank}-${card.suit}-${index}`}
+                      card={card}
+                      size="sm"
+                      highlight={myHighlightKeys.includes(`${card.rank}-${card.suit}`)}
+                    />
                   ))}
                 </div>
 
@@ -531,24 +550,32 @@ export default function GameTable() {
       )}
 
       {room.leaderboard?.length > 0 && (
-        <div className="fixed right-4 top-20 z-20 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+        <div className="fixed right-4 top-20 z-10 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
           <p className="mb-2 text-[10px] uppercase tracking-[0.25em] text-gold/80">Final Ranking</p>
           <div className="space-y-2">
-            {room.leaderboard.map((entry) => (
-              <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
-                <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                  <span className="text-white/80">#{entry.placement} {entry.name}</span>
-                  <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
-                </div>
-                {entry.hand?.combo?.length > 0 && (
-                  <div className="flex gap-1.5">
-                    {entry.hand.combo.map((card, idx) => (
-                      <Card key={`${entry.id}-${idx}-${card.rank}-${card.suit}`} card={card} size="sm" highlight />
-                    ))}
+            {room.leaderboard.map((entry) => {
+              const highlightKeys = getHighlightCardKeys(entry.hand);
+              return (
+                <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-white/80">#{entry.placement} {entry.name}</span>
+                    <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {entry.hand?.combo?.length > 0 && (
+                    <div className="flex gap-1.5">
+                      {entry.hand.combo.map((card, idx) => (
+                        <Card
+                          key={`${entry.id}-${idx}-${card.rank}-${card.suit}`}
+                          card={card}
+                          size="sm"
+                          highlight={highlightKeys.includes(`${card.rank}-${card.suit}`)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
