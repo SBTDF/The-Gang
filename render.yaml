@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: the-gang
+    env: node
+    plan: free
+    branch: main
+    buildCommand: bash ./render-build.sh
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        value: "https://<YOUR_VERCEL_URL>" # replace after Vercel deploy
+    autoDeploy: true
