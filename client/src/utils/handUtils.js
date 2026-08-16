@@ -156,6 +156,8 @@ export function evaluateBestHand(pocketCards, communityCards) {
 }
 
 export function formatCardLabel(card) {
+  if (!card) return '—';
+  if (card.hidden) return '?';
   return `${card.rank}${SUIT_SYMBOLS[card.suit]}`;
 }
 

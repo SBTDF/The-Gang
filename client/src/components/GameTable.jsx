@@ -484,7 +484,7 @@ export default function GameTable() {
                 <div className="relative flex flex-col items-center">
                   <span className="text-sm font-medium text-gold">{me?.name} (bạn)</span>
                   {myEmote && (
-                    <div className="pointer-events-none absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/80 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse">
+                    <div className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse">
                       {myEmote.text}
                     </div>
                   )}
@@ -698,7 +698,7 @@ function PlayerSlot({
       </div>
       {emote && (
         <div
-          className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/80 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse transition-opacity duration-200"
+          className="pointer-events-none absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse transition-opacity duration-200"
           style={{ opacity: emoteOpacity }}
         >
           {emote.text}

@@ -22,6 +22,18 @@ export default function Card({ card, faceDown = false, size = 'md', highlight = 
   const highlightClass = highlight ? 'ring-2 ring-yellow-300 ring-offset-1 ring-offset-black/30 shadow-[0_0_0_2px_rgba(250,204,21,0.35),0_12px_25px_rgba(0,0,0,0.38)]' : '';
 
   if (faceDown || !card) {
+    if (card?.hidden) {
+      return (
+        <div
+          className={`${sizes[size]} rounded-xl border-2 border-gold/45 bg-gradient-to-br from-[#1a254d] via-[#101a35] to-[#0d162d] shadow-[0_10px_25px_rgba(0,0,0,0.35)] flex items-center justify-center flex-shrink-0 ring-1 ring-white/5 ${highlightClass}`}
+        >
+          <div className="flex h-full w-full items-center justify-center rounded-[0.7rem] border border-gold/20 bg-gradient-to-br from-gold/10 to-transparent">
+            <span className="text-gold text-xl sm:text-2xl font-black tracking-widest">?</span>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         className={`${sizes[size]} rounded-xl border-2 border-gold/45 bg-gradient-to-br from-[#1a254d] via-[#101a35] to-[#0d162d] shadow-[0_10px_25px_rgba(0,0,0,0.35)] flex items-center justify-center flex-shrink-0 ring-1 ring-white/5 ${highlightClass}`}
