@@ -10,6 +10,10 @@ import {
   startGame,
   advancePhase,
   selectChip,
+  returnChipToCenter,
+  confirmChipSelection,
+  requestTrade,
+  respondToTrade,
   sanitizeRoomForClient,
   getPlayerCards,
   processShowdownStep,
@@ -141,21 +145,66 @@ io.on('connection', (socket) => {
       return;
     }
     broadcastRoom(code);
-    if (result.allReady) {
-      setTimeout(() => {
-        const r = rooms[code];
-        if (!r) return;
-        const adv = advancePhase(r);
-        if (adv.showdown) {
-          broadcastRoom(code);
-          const step = getShowdownStep(r);
-          io.to(code).emit('SHOWDOWN_STEP', step);
-        } else if (adv.ok) {
-          broadcastRoom(code);
-          for (const p of r.players) sendPrivateCards(code, p.id);
-        }
-      }, 1500);
+  });
+
+  socket.on('RETURN_CHIP', () => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = returnChipToCenter(room, socket.id);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
     }
+    broadcastRoom(code);
+  });
+
+  socket.on('CONFIRM_CHIP_SELECTION', () => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = confirmChipSelection(room, socket.id);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
+
+    if (result.allConfirmed) {
+      const adv = advancePhase(room);
+      if (adv.showdown) {
+        broadcastRoom(code);
+        const step = getShowdownStep(room);
+        io.to(code).emit('SHOWDOWN_STEP', step);
+      } else if (adv.ok) {
+        broadcastRoom(code);
+        for (const p of room.players) sendPrivateCards(code, p.id);
+      }
+    }
+  });
+
+  socket.on('REQUEST_TRADE', ({ targetPlayerId, fromChipValue, toChipValue }) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = requestTrade(room, socket.id, targetPlayerId, fromChipValue, toChipValue);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
+  });
+
+  socket.on('RESPOND_TRADE', ({ accept }) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = respondToTrade(room, socket.id, accept);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
   });
 
   socket.on('ADVANCE_SHOWDOWN', () => {

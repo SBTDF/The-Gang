@@ -43,6 +43,9 @@ export default function GameTable() {
   if (!room) return null;
 
   const guessPhase = room?.guessPhase;
+  const myRoundChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
+  const myConfirmed = !!room.roundConfirmed?.[myId];
+  const confirmedCount = Object.values(room.roundConfirmed || {}).filter(Boolean).length;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 250);
@@ -100,7 +103,7 @@ export default function GameTable() {
   };
 
   const handleChipClick = (value, targetPlayerId = null) => {
-    if (!isChipPhase) return;
+    if (!isChipPhase || myConfirmed) return;
 
     if (selectedChip === value && !targetPlayerId) {
       setSelectedChip(null);
@@ -113,18 +116,14 @@ export default function GameTable() {
       return;
     }
 
-    if (myChipValue != null && myChipValue !== value) {
-      socket.emit('SELECT_CHIP', { chipValue: value });
-      setSelectedChip(null);
-      return;
-    }
-
-    if (myChipValue === value) {
-      setSelectedChip(value);
-      return;
-    }
-
+    setSelectedChip(value);
     socket.emit('SELECT_CHIP', { chipValue: value });
+  };
+
+  const handleReturnChip = () => {
+    if (!isChipPhase || myConfirmed || myRoundChoice == null) return;
+    setSelectedChip(null);
+    socket.emit('RETURN_CHIP');
   };
 
   const handlePlayerChipClick = (player) => {
@@ -145,10 +144,9 @@ export default function GameTable() {
   };
 
   const handleRequestTrade = (targetPlayerId) => {
-    if (!isChipPhase || !currentChipColor) return;
-    const myChoice = me?.chips?.[currentChipColor] ?? selectedChip ?? null;
-    const target = players.find((p) => p.id === targetPlayerId);
-    const targetChoice = target?.chips?.[currentChipColor] ?? null;
+    if (!isChipPhase || !currentChipColor || myConfirmed) return;
+    const myChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
+    const targetChoice = room.roundSelections?.[targetPlayerId] ?? null;
     if (myChoice == null || targetChoice == null) return;
     socket.emit('REQUEST_TRADE', {
       targetPlayerId,
@@ -279,16 +277,19 @@ export default function GameTable() {
                   ))}
                 </div>
                 <div className="flex items-center justify-center gap-2">
-                  <button type="button" onClick={() => setSelectedChip(null)} className="btn-secondary text-xs">
-                    Clear pick
+                  <button type="button" onClick={handleReturnChip} className="btn-secondary text-xs" disabled={myConfirmed || myRoundChoice == null}>
+                    Return to center
                   </button>
-                  <button type="button" onClick={handleConfirmRoundChoice} className="btn-primary text-xs" disabled={!selectedChip}>
-                    Confirm choice
+                  <button type="button" onClick={handleConfirmRoundChoice} className="btn-primary text-xs" disabled={!myRoundChoice || myConfirmed}>
+                    {myConfirmed ? 'Locked in' : 'Confirm choice'}
                   </button>
                 </div>
-                {myChipValue != null && (
+                <p className="text-xs text-gold/80">
+                  Confirmed: {confirmedCount}/{players.length}
+                </p>
+                {myRoundChoice != null && (
                   <p className="text-xs text-gold/80">
-                    Chip của bạn: {myChipValue} — use Trade button to propose a swap instead of stealing.
+                    Chip of you: {myRoundChoice} — use Trade button to propose a swap instead of stealing.
                   </p>
                 )}
               </div>
@@ -566,6 +567,11 @@ export default function GameTable() {
               <div className="mt-4 flex justify-center gap-2">
                 <button type="button" onClick={() => handleTradeResponse(false)} className="btn-secondary text-xs">Deny</button>
                 <button type="button" onClick={() => handleTradeResponse(true)} className="btn-primary text-xs">Accept</button>
+              </div>
+            )}
+            {room.tradeOffer.fromPlayerId === myId && (
+              <div className="mt-4 flex justify-center">
+                <span className="text-xs text-white/50">Waiting for {players.find((p) => p.id === room.tradeOffer.toPlayerId)?.name ?? 'opponent'} to respond</span>
               </div>
             )}
           </div>

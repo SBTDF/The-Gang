@@ -56,6 +56,9 @@ export function createRoom(hostId, playerName, maxPlayers = 6) {
     currentChipColor: null,
     availableChips: [],
     lockedChips: new Set(),
+    roundSelections: {},
+    roundConfirmed: {},
+    tradeOffer: null,
     showdownOrder: [],
     showdownIndex: 0,
     lastHeistSuccess: null,
@@ -73,6 +76,9 @@ function initChipPool(room) {
   room.availableChips = Array.from({ length: n }, (_, i) => i + 1);
   room.currentChipColor = getChipColor(room.gameState);
   room.lockedChips = new Set();
+  room.roundSelections = {};
+  room.roundConfirmed = {};
+  room.tradeOffer = null;
 }
 
 function allPlayersHaveChip(room) {
@@ -578,67 +584,148 @@ function isChipLocked(room, chipValue) {
   return room.lockedChips.has(chipValue);
 }
 
+function allPlayersConfirmed(room) {
+  return room.players.length > 0 && room.players.every((p) => !!room.roundConfirmed[p.id]);
+}
+
+function commitConfirmedChipRound(room) {
+  const color = room.currentChipColor;
+  if (!color) return { ok: true };
+
+  for (const player of room.players) {
+    const value = room.roundSelections[player.id];
+    if (value == null) continue;
+    player.chips[color] = value;
+  }
+
+  room.availableChips = [];
+  room.roundSelections = {};
+  room.roundConfirmed = {};
+  room.tradeOffer = null;
+
+  return { ok: true, allReady: allPlayersHaveChip(room) };
+}
+
+export function returnChipToCenter(room, playerId) {
+  const color = room.currentChipColor;
+  if (!color) return { error: 'Không có chip round này' };
+  if (room.roundConfirmed[playerId]) {
+    return { error: 'Bạn đã xác nhận chip, không thể trả chip về trung tâm' };
+  }
+
+  const selected = room.roundSelections[playerId];
+  if (selected == null) {
+    return { ok: true, returned: false };
+  }
+
+  delete room.roundSelections[playerId];
+  if (!room.availableChips.includes(selected)) {
+    room.availableChips.push(selected);
+    room.availableChips.sort((a, b) => a - b);
+  }
+
+  room.roundConfirmed[playerId] = false;
+  return { ok: true, returned: true, chipValue: selected };
+}
+
+export function confirmChipSelection(room, playerId) {
+  const color = room.currentChipColor;
+  if (!color) return { error: 'Không có chip round này' };
+  if (room.roundSelections[playerId] == null) {
+    return { error: 'Bạn chưa chọn chip' };
+  }
+  if (room.roundConfirmed[playerId]) {
+    return { ok: true, allConfirmed: allPlayersConfirmed(room) };
+  }
+
+  room.roundConfirmed[playerId] = true;
+  if (allPlayersConfirmed(room)) {
+    const result = commitConfirmedChipRound(room);
+    return { ok: true, allConfirmed: true, ...result };
+  }
+
+  return { ok: true, allConfirmed: false, confirmedCount: Object.values(room.roundConfirmed).filter(Boolean).length };
+}
+
+export function requestTrade(room, fromPlayerId, toPlayerId, fromChipValue, toChipValue) {
+  if (fromPlayerId === toPlayerId) return { error: 'Không thể trade với chính mình' };
+  if (room.roundConfirmed[fromPlayerId] || room.roundConfirmed[toPlayerId]) {
+    return { error: 'Không thể trade sau khi đã xác nhận chip' };
+  }
+
+  const fromSelected = room.roundSelections[fromPlayerId] ?? fromChipValue;
+  const toSelected = room.roundSelections[toPlayerId] ?? toChipValue;
+  if (fromSelected == null) return { error: 'Bạn chưa chọn chip để trade' };
+  if (toSelected == null) return { error: 'Người kia chưa chọn chip để trade' };
+
+  room.tradeOffer = {
+    fromPlayerId,
+    toPlayerId,
+    fromChipValue: fromSelected,
+    toChipValue: toSelected,
+    expiresAt: Date.now() + 15000,
+    status: 'pending',
+  };
+
+  return { ok: true, tradeOffer: room.tradeOffer };
+}
+
+export function respondToTrade(room, playerId, accept) {
+  const offer = room.tradeOffer;
+  if (!offer) return { error: 'Không có request trade' };
+  if (playerId !== offer.toPlayerId) return { error: 'Chỉ người được mời mới trả lời trade' };
+
+  if (!accept) {
+    room.tradeOffer = null;
+    return { ok: true, accepted: false };
+  }
+
+  room.roundSelections[offer.fromPlayerId] = offer.toChipValue;
+  room.roundSelections[offer.toPlayerId] = offer.fromChipValue;
+  room.tradeOffer = null;
+  return { ok: true, accepted: true };
+}
+
 export function selectChip(room, playerId, chipValue, targetPlayerId = null) {
   const color = room.currentChipColor;
   if (!color) return { error: 'Không có chip round này' };
 
+  if (targetPlayerId) {
+    return { error: 'Trao đổi chip phải dùng request trade, không steal trực tiếp' };
+  }
+
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return { error: 'Người chơi không tồn tại' };
 
-  const myChip = player.chips[color];
-
-  if (targetPlayerId) {
-    const target = room.players.find((p) => p.id === targetPlayerId);
-    if (!target) return { error: 'Đối thủ không tồn tại' };
-    if (target.chips[color] !== chipValue) return { error: 'Chip không hợp lệ' };
-    if (isChipLocked(room, chipValue)) {
-      return { error: 'Chip này bị khóa (Noise Sensor / Ventilation Shaft)' };
-    }
-    if (myChip != null && isChipLocked(room, myChip)) {
-      return { error: 'Chip của bạn bị khóa, không thể đổi' };
-    }
-
-    if (myChip != null) {
-      target.chips[color] = myChip;
-    } else {
-      delete target.chips[color];
-    }
-    player.chips[color] = chipValue;
-
-    if (myChip != null && !room.availableChips.includes(myChip)) {
-      room.availableChips.push(myChip);
-      room.availableChips.sort((a, b) => a - b);
-    }
-    room.availableChips = room.availableChips.filter((c) => c !== chipValue);
-
-    addLog(room, `${player.name} cướp chip ${chipValue} từ ${target.name}`);
-  } else {
-    if (!room.availableChips.includes(chipValue)) {
-      return { error: 'Chip không còn trong pool' };
-    }
-    if (myChip != null && isChipLocked(room, myChip)) {
-      return { error: 'Chip của bạn bị khóa, không thể trả về pool' };
-    }
-
-    if (myChip != null) {
-      room.availableChips.push(myChip);
-      room.availableChips.sort((a, b) => a - b);
-    }
-
-    player.chips[color] = chipValue;
-    room.availableChips = room.availableChips.filter((c) => c !== chipValue);
-
-    if (shouldLockChip(room, chipValue)) {
-      room.lockedChips.add(chipValue);
-      const reason = chipValue === 1 ? 'Noise Sensors' : 'Ventilation Shaft';
-      addLog(room, `Chip ${chipValue} bị khóa (${reason})`);
-    }
-
-    addLog(room, `${player.name} lấy chip ${chipValue}`);
+  if (room.roundConfirmed[playerId]) {
+    return { error: 'Bạn đã xác nhận chip, không thể đổi nữa' };
   }
 
-  const ready = allPlayersHaveChip(room);
-  return { ok: true, allReady: ready };
+  const available = room.availableChips || [];
+  if (!available.includes(chipValue)) {
+    return { error: 'Chip không còn trong pool' };
+  }
+
+  const previous = room.roundSelections[playerId];
+  if (previous != null && previous !== chipValue) {
+    room.availableChips.push(previous);
+    room.availableChips.sort((a, b) => a - b);
+  }
+
+  room.roundSelections[playerId] = chipValue;
+  room.availableChips = room.availableChips.filter((c) => c !== chipValue);
+  room.roundConfirmed[playerId] = false;
+
+  if (shouldLockChip(room, chipValue)) {
+    room.lockedChips.add(chipValue);
+    const reason = chipValue === 1 ? 'Noise Sensors' : 'Ventilation Shaft';
+    addLog(room, `Chip ${chipValue} bị khóa (${reason})`);
+  }
+
+  addLog(room, `${player.name} chọn chip ${chipValue}`);
+
+  const ready = allPlayersConfirmed(room);
+  return { ok: true, allReady: ready, selectedChip: chipValue };
 }
 
 export function sanitizeRoomForClient(room, viewerId) {
@@ -648,10 +735,10 @@ export function sanitizeRoomForClient(room, viewerId) {
 
   const guessSanitized = room.guessPhase
     ? {
-        ...sanitizeGuessPhase(room, viewerId),
-        myVote: room.guessPhase.votes[viewerId] || null,
-        isTarget: room.guessPhase.targetPlayerId === viewerId,
-      }
+      ...sanitizeGuessPhase(room, viewerId),
+      myVote: room.guessPhase.votes[viewerId] || null,
+      isTarget: room.guessPhase.targetPlayerId === viewerId,
+    }
     : null;
 
   return {
@@ -672,6 +759,12 @@ export function sanitizeRoomForClient(room, viewerId) {
     showdownOrder: room.showdownOrder,
     guessPhase: guessSanitized,
     leaderboard: room.leaderboard || [],
+    roundSelections: room.roundSelections || {},
+    roundConfirmed: room.roundConfirmed || {},
+    tradeOffer: room.tradeOffer && room.tradeOffer.expiresAt > Date.now() ? {
+      ...room.tradeOffer,
+      timeLeftMs: Math.max(0, room.tradeOffer.expiresAt - Date.now()),
+    } : null,
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
