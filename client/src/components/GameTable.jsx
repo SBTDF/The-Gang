@@ -201,7 +201,7 @@ export default function GameTable() {
   }
 
   return (
-    <div className="game-shell flex-1 flex flex-col min-h-0 overflow-hidden px-2 pt-2 sm:px-4">
+    <div className="game-shell flex flex-col px-2 pt-2 sm:px-4 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
       {/* Top bar */}
       <div className="flex-shrink-0 px-2 pt-1 pb-2 space-y-3">
         <div className="glass-panel rounded-2xl border border-gold/20 p-2 shadow-[0_8px_30px_rgba(0,0,0,0.18)]">
@@ -230,12 +230,12 @@ export default function GameTable() {
       </div>
 
       {/* Main game area */}
-      <div className="flex-1 flex min-h-0 pb-2 gap-3">
+      <div className="flex flex-col gap-3 pb-2 lg:flex-row lg:flex-1 lg:min-h-0">
         <GameLog logs={room.gameLog} />
 
-        <div className="flex-1 flex flex-col min-h-0 min-w-0">
+        <div className="flex min-w-0 flex-col lg:flex-1 lg:min-h-0">
           {/* Opponents - top area */}
-          <div className="flex-shrink-0 flex flex-wrap justify-center gap-2 sm:gap-4 py-2 px-1">
+          <div className="flex flex-shrink-0 flex-wrap justify-center gap-2 px-1 py-2 sm:gap-4">
             {opponents.map((p) => {
               const vote = room?.guessPhase?.playerVotes?.find((entry) => entry.id === p.id)?.vote;
               const voteBadge = vote?.confirmed
@@ -265,10 +265,10 @@ export default function GameTable() {
           </div>
 
           {/* Table center */}
-          <div className="flex-1 felt-table mx-auto w-full max-w-2xl flex flex-col items-center justify-center p-3 sm:p-6 min-h-0 shadow-[0_25px_50px_rgba(0,0,0,0.28)]">
+          <div className="felt-table mx-auto flex w-full max-w-2xl min-w-0 flex-none flex-col items-center justify-center p-2 shadow-[0_25px_50px_rgba(0,0,0,0.28)] sm:p-6 lg:flex-1 lg:min-h-0">
             {/* Community cards */}
-            <div className="mb-4 sm:mb-6 rounded-2xl border border-gold/20 bg-black/20 px-3 py-2 shadow-inner shadow-black/20">
-              <div className="flex gap-1.5 sm:gap-2 justify-center">
+            <div className="mb-3 max-w-full rounded-2xl border border-gold/20 bg-black/20 px-2 py-2 shadow-inner shadow-black/20 sm:mb-6 sm:px-3">
+              <div className="flex justify-center gap-1 sm:gap-2">
                 {[0, 1, 2, 3, 4].map((i) => (
                   <Card
                     key={i}
@@ -282,8 +282,8 @@ export default function GameTable() {
 
             {/* Chip pool */}
             {isChipPhase && (
-              <div className="glass-panel rounded-2xl px-4 py-3 text-center space-y-2 shadow-[0_8px_20px_rgba(0,0,0,0.15)] border border-gold/10">
-                <p className="text-[10px] uppercase tracking-[0.22em] text-gold/80">{PHASE_HINTS[gameState]}</p>
+              <div className="glass-panel w-full max-w-full rounded-2xl border border-gold/10 px-3 py-3 text-center shadow-[0_8px_20px_rgba(0,0,0,0.15)] space-y-2 sm:px-4">
+                <p className="mb-2 text-[10px] uppercase tracking-[0.12em] text-gold/80 sm:tracking-[0.22em]">{PHASE_HINTS[gameState]}</p>
                 <div className="flex flex-wrap justify-center gap-2">
                   {availableChips?.map((v) => (
                     <Chip
@@ -296,7 +296,7 @@ export default function GameTable() {
                     />
                   ))}
                 </div>
-                <div className="flex items-center justify-center gap-2">
+                <div className="flex flex-wrap items-center justify-center gap-2">
                   <button type="button" onClick={handleReturnChip} className="btn-secondary text-xs" disabled={myConfirmed || myRoundChoice == null}>
                     Return to center
                   </button>
@@ -317,11 +317,11 @@ export default function GameTable() {
 
             {/* Showdown */}
             {gameState === 'SHOWDOWN' && showdownStep && !showdownStep.done && (
-              <div className="glass-panel rounded-2xl px-5 py-4 text-center space-y-3 animate-fade-in border border-gold/15">
+              <div className="glass-panel rounded-2xl border border-gold/15 px-3 py-4 text-center shadow-sm space-y-3 sm:px-5">
                 <p className="text-gold font-display text-xl tracking-wide">
                   {showdownStep.playerName} lật bài
                 </p>
-                <div className="flex justify-center gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                   {showdownStep.cards?.map((c, i) => (
                     <Card key={i} card={c} size="md" />
                   ))}
@@ -421,7 +421,7 @@ export default function GameTable() {
                   </div>
                 )}
 
-                <div className="mb-3 flex items-center justify-center gap-2">
+                <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
                   <button
                     type="button"
                     onClick={resetChallengeChoice}
@@ -478,7 +478,7 @@ export default function GameTable() {
 
           {/* Hero - bottom */}
           <div className="flex-shrink-0 py-2 sm:py-3">
-            <div className="flex items-end justify-center gap-3 sm:gap-4">
+            <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-4">
               <div className="flex gap-1.5 sm:gap-2 rounded-2xl border border-gold/15 bg-black/20 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                 {myCards.map((c, i) => (
                   <Card key={i} card={c} size="lg" />
@@ -513,7 +513,7 @@ export default function GameTable() {
             </div>
 
             {myBestHand && (
-              <div className="glass-panel mt-3 mx-auto max-w-xl rounded-2xl p-3 text-left shadow-[0_15px_28px_rgba(0,0,0,0.18)] border border-gold/20">
+              <div className="glass-panel mx-auto mt-3 w-full max-w-xl rounded-2xl border border-gold/20 p-3 text-left shadow-[0_15px_28px_rgba(0,0,0,0.18)]">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Best hand</span>
@@ -566,16 +566,16 @@ export default function GameTable() {
       )}
 
       {room.leaderboard?.length > 0 && (
-        <div className="fixed right-4 top-20 z-10 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+        <div className="relative z-10 mx-auto mt-3 w-full max-w-xl rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm lg:fixed lg:right-4 lg:top-20 lg:mx-0 lg:mt-0 lg:w-[300px] lg:max-w-[calc(100vw-2rem)] lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
           <p className="mb-2 text-[10px] uppercase tracking-[0.25em] text-gold/80">Final Ranking</p>
           <div className="space-y-2">
             {room.leaderboard.map((entry) => {
               const highlightKeys = getHighlightCardKeys(entry.hand);
               return (
                 <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                    <span className="text-white/80">#{entry.placement} {entry.name}</span>
-                    <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
+                  <div className="mb-1 flex items-start justify-between gap-2 text-xs">
+                    <span className="min-w-0 flex-1 break-words text-white/80">#{entry.placement} {entry.name}</span>
+                    <span className="max-w-[45%] shrink-0 text-right text-gold">{entry.hand?.name || 'Unknown'}</span>
                   </div>
                   {(entry.hand?.combo || []).length > 0 && (
                     <div className="flex gap-1.5">
@@ -690,7 +690,7 @@ function PlayerSlot({
   const emoteOpacity = emote ? Math.max(0, 1 - emoteAge / 1500) : 0;
 
   return (
-    <div ref={slotRef} className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10 overflow-visible">
+    <div ref={slotRef} className="player-slot glass-panel relative flex min-w-0 flex-col items-center gap-1 overflow-visible rounded-2xl border border-white/10 px-1.5 py-2 sm:min-w-[88px] sm:px-2">
       <div className="flex gap-0.5">
         {showCards && player.cards ? (
           player.cards.map((c, i) => <Card key={i} card={c} size="sm" />)

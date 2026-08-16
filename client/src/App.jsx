@@ -71,7 +71,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-full flex flex-col safe-top safe-bottom">
+    <div className="min-h-screen flex flex-col safe-top safe-bottom">
       {screen === 'menu' && <MainMenu />}
       {screen === 'lobby' && <Lobby />}
       {(screen === 'game' || screen === 'gameover') && <GameTable />}

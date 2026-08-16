@@ -7,11 +7,11 @@
   html,
   body,
   #root {
-    @apply h-full w-full overflow-hidden;
+    @apply min-h-full w-full;
   }
 
   body {
-    @apply bg-felt-dark text-white font-body antialiased;
+    @apply bg-felt-dark text-white font-body antialiased overflow-x-hidden;
     background-image:
       radial-gradient(ellipse at 50% 0%, rgba(212, 175, 55, 0.10) 0%, transparent 60%),
       radial-gradient(circle at 15% 85%, rgba(36, 118, 89, 0.42) 0%, transparent 35%),

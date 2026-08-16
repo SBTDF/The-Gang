@@ -10,9 +10,9 @@ const PHASE_LABELS = {
 
 export default function VaultAlarm({ vault, alarms, heistNumber, phase }) {
   return (
-    <div className="flex items-center justify-between gap-2 px-3 py-2 bg-black/30 rounded-xl border border-white/10">
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-white/50">Vault</span>
+    <div className="flex items-center justify-between gap-1 px-2 py-2 sm:gap-2 sm:px-3 bg-black/30 rounded-xl border border-white/10">
+      <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
+        <span className="text-[10px] sm:text-xs text-white/50">Vault</span>
         <div className="flex gap-0.5">
           {[1, 2, 3].map((i) => (
             <div
@@ -27,7 +27,7 @@ export default function VaultAlarm({ vault, alarms, heistNumber, phase }) {
         </div>
       </div>
 
-      <div className="text-center min-w-0 flex-1 px-2">
+      <div className="text-center min-w-0 flex-1 px-1 sm:px-2">
         <p className="text-[10px] sm:text-xs text-gold/80 font-medium truncate">
           Heist #{heistNumber}
         </p>
@@ -36,7 +36,7 @@ export default function VaultAlarm({ vault, alarms, heistNumber, phase }) {
         </p>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
         <div className="flex gap-0.5">
           {[1, 2, 3].map((i) => (
             <div
@@ -49,7 +49,7 @@ export default function VaultAlarm({ vault, alarms, heistNumber, phase }) {
             />
           ))}
         </div>
-        <span className="text-xs text-white/50">Alarm</span>
+        <span className="text-[10px] sm:text-xs text-white/50">Alarm</span>
       </div>
     </div>
   );
