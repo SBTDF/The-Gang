@@ -10,7 +10,7 @@ export NODE_ENV=development
 echo "Repo root: $SCRIPT_ROOT"
 
 echo "Installing workspace dependencies..."
-npm install
+npm ci --include=dev
 
 echo "Building client..."
 npm run build --workspace client

@@ -17,6 +17,8 @@ const PHASE_HINTS = {
   RIVER: 'Chọn chip đỏ — quyết định thứ tự Showdown',
 };
 
+const EMOTE_BUBBLE_CLASS = 'pointer-events-none absolute left-full top-1/2 z-30 ml-2 w-max max-w-[min(70vw,260px)] -translate-y-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-3 py-1.5 text-sm font-semibold leading-tight text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse transition-opacity duration-200';
+
 export default function GameTable() {
   const {
     room,
@@ -484,7 +486,7 @@ export default function GameTable() {
                 <div className="relative flex flex-col items-center">
                   <span className="text-sm font-medium text-gold">{me?.name} (bạn)</span>
                   {myEmote && (
-                    <div className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse">
+                    <div className={EMOTE_BUBBLE_CLASS}>
                       {myEmote.text}
                     </div>
                   )}
@@ -685,7 +687,7 @@ function PlayerSlot({
   const emoteOpacity = emote ? Math.max(0, 1 - emoteAge / 1500) : 0;
 
   return (
-    <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10">
+    <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10 overflow-visible">
       <div className="flex gap-0.5">
         {showCards && player.cards ? (
           player.cards.map((c, i) => <Card key={i} card={c} size="sm" />)
@@ -698,7 +700,7 @@ function PlayerSlot({
       </div>
       {emote && (
         <div
-          className="pointer-events-none absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-yellow-300/80 bg-[#fef3c7]/95 px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-[0_10px_18px_rgba(0,0,0,0.32)] animate-pulse transition-opacity duration-200"
+          className={EMOTE_BUBBLE_CLASS}
           style={{ opacity: emoteOpacity }}
         >
           {emote.text}

@@ -65,7 +65,7 @@ const INCOMPAT = {
 export default function Lobby() {
   const { room, roomCode, myId, playerName, reset, setError } = useGameStore();
   const [showRules, setShowRules] = useState(false);
-  const [challenges, setChallenges] = useState([]);
+  const challenges = room?.challenges || [];
 
   const isHost = room?.hostId === myId;
   const players = room?.players || [];
@@ -77,7 +77,6 @@ export default function Lobby() {
     // remove
     if (challenges.includes(id)) {
       const next = challenges.filter((c) => c !== id);
-      setChallenges(next);
       socket.emit('SET_CHALLENGES', { challenges: next });
       return;
     }
@@ -91,7 +90,6 @@ export default function Lobby() {
     }
 
     const next = [...challenges, id];
-    setChallenges(next);
     socket.emit('SET_CHALLENGES', { challenges: next });
   };
 
@@ -132,8 +130,7 @@ export default function Lobby() {
           )}
         </div>
 
-        {isHost && (
-          <div className="bg-black/25 rounded-2xl p-4 border border-white/10">
+        <div className="bg-black/25 rounded-2xl p-4 border border-white/10">
             <h3 className="text-sm font-semibold text-white/70 mb-3">Thử thách (tùy chọn)</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {CHALLENGES.map((c) => {
@@ -142,12 +139,17 @@ export default function Lobby() {
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => toggleChallenge(c.id)}
+                    onClick={() => isHost && toggleChallenge(c.id)}
+                    disabled={!isHost}
+                    aria-pressed={selected}
                     className={`challenge-card w-full text-left p-3 hover:scale-[1.01] transition-transform ${selected ? 'border-gold/60 ring-1 ring-gold/20 bg-gold/5' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-white">{c.name}</div>
+                        <div className={`mt-1 text-[10px] font-bold tracking-wide ${selected ? 'text-emerald-300' : 'text-white/40'}`}>
+                          {selected ? 'ACTIVE' : 'DISABLED'}
+                        </div>
                         <p className="text-[13px] text-white/75 mt-2 leading-snug">{c.desc}</p>
                       </div>
                       <div className="flex-shrink-0">
@@ -160,8 +162,7 @@ export default function Lobby() {
                 );
               })}
             </div>
-          </div>
-        )}
+        </div>
 
         <div className="flex flex-col gap-3">
           {isHost && (

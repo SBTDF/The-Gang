@@ -52,20 +52,25 @@ The Gang/
 ## Deploy
 
 ### Backend (Render.com)
-- Root Directory: `server`
-- Build: `npm install`
-- Start: `node index.js`
-- Env: `CLIENT_URL=https://your-frontend-url.com`
+- Root Directory: repository root
+- Build command: `bash ./render-build.sh`
+- Start command: `npm start`
+- Flow: `npm ci` → build the client → start Express
+- Express serves `client/dist` and Socket.IO runs on the same service
 
 ### Frontend (Vercel)
+This is an optional separate-frontend deployment. If used:
 - Root Directory: `client`
 - Framework: Vite
 - Env: `VITE_SERVER_URL=https://your-backend.onrender.com`
 
+For the primary single-service Render deployment, build and serve from the repository root:
+
 Hoặc build client và serve từ server:
 ```bash
-cd client && npm run build
-cd ../server && npm start
+npm ci --include=dev
+npm run build --workspace client
+npm start
 ```
 
 ## Tính năng MVP
