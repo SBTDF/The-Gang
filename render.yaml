@@ -4,11 +4,9 @@ services:
     env: node
     plan: free
     branch: main
-    buildCommand: npm install
+    buildCommand: NPM_CONFIG_PRODUCTION=false npm install && npm run build --workspace client
     startCommand: npm start
     envVars:
-      - key: NPM_CONFIG_PRODUCTION
-        value: "false"
       - key: CLIENT_URL
         value: "*"
     autoDeploy: true
