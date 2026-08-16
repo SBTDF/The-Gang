@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_ROOT"
 
+export NPM_CONFIG_PRODUCTION=false
+export NODE_ENV=development
+
 echo "Repo root: $SCRIPT_ROOT"
 
 echo "Building client..."
@@ -12,7 +15,7 @@ if [ ! -d "client" ]; then
   exit 1
 fi
 cd client
-npm ci
+npm install
 npm run build
 cd "$SCRIPT_ROOT"
 
@@ -22,6 +25,6 @@ if [ ! -d "server" ]; then
   exit 1
 fi
 cd server
-npm ci
+npm install
 
 echo "Build complete."
