@@ -1,13 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_ROOT"
+
+echo "Repo root: $SCRIPT_ROOT"
+
 echo "Building client..."
+if [ ! -d "client" ]; then
+  echo "client directory not found in $SCRIPT_ROOT" >&2
+  exit 1
+fi
 cd client
 npm ci
 npm run build
+cd "$SCRIPT_ROOT"
 
 echo "Installing server deps..."
-cd ../server
+if [ ! -d "server" ]; then
+  echo "server directory not found in $SCRIPT_ROOT" >&2
+  exit 1
+fi
+cd server
 npm ci
 
 echo "Build complete."
