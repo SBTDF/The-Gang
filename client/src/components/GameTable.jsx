@@ -35,6 +35,7 @@ export default function GameTable() {
   const [showRankings, setShowRankings] = useState(false);
   const [emoteTarget, setEmoteTarget] = useState(null);
   const [showMobileLog, setShowMobileLog] = useState(false);
+  const [challengeVote, setChallengeVote] = useState({ cardRank: null, handRank: null });
 
   if (!room) return null;
 
@@ -46,10 +47,21 @@ export default function GameTable() {
   const isChipPhase = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER'].includes(gameState);
   const isHost = room.hostId === myId;
 
+  const guessPhase = room?.guessPhase;
+
   const myBestHand = useMemo(() => {
     if (!myCards?.length || !communityCards) return null;
     return evaluateBestHand(myCards, communityCards);
   }, [myCards, communityCards]);
+
+  const submitChallengeVote = () => {
+    if (!guessPhase || myId === guessPhase.targetPlayerId) return;
+    socket.emit('SUBMIT_GUESS', {
+      cardRank: guessPhase.needRetina ? challengeVote.cardRank : null,
+      handRank: guessPhase.needFingerprint ? challengeVote.handRank : null,
+    });
+    setChallengeVote({ cardRank: null, handRank: null });
+  };
 
   const handleChipClick = (value, targetPlayerId = null) => {
     if (!isChipPhase) return;
@@ -238,6 +250,75 @@ export default function GameTable() {
                 {!isHost && (
                   <p className="text-white/50 text-sm animate-pulse">Chờ host...</p>
                 )}
+              </div>
+            )}
+
+            {gameState === 'SHOWDOWN_GUESS' && guessPhase && myId !== guessPhase.targetPlayerId && (
+              <div className="glass-panel mt-4 w-full max-w-xl rounded-2xl border border-gold/20 p-4 shadow-[0_12px_28px_rgba(0,0,0,0.2)]">
+                <div className="mb-3 text-center">
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Challenge vote</p>
+                  <h3 className="mt-2 text-xl font-semibold text-white">
+                    Vote for {guessPhase.targetName}
+                  </h3>
+                </div>
+
+                {guessPhase.needRetina && (
+                  <div className="mb-4">
+                    <p className="mb-2 text-xs uppercase tracking-[0.2em] text-white/60">Card rank</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {guessPhase.options.retina.map((rank) => (
+                        <button
+                          key={rank}
+                          type="button"
+                          onClick={() => setChallengeVote((prev) => ({ ...prev, cardRank: rank }))}
+                          className={`rounded-lg border px-3 py-2 text-sm transition-all ${
+                            challengeVote.cardRank === rank
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                          }`}
+                        >
+                          {rank}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {guessPhase.needFingerprint && (
+                  <div className="mb-4">
+                    <p className="mb-2 text-xs uppercase tracking-[0.2em] text-white/60">Hand rank</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {guessPhase.options.fingerprint.map((rank) => (
+                        <button
+                          key={rank}
+                          type="button"
+                          onClick={() => setChallengeVote((prev) => ({ ...prev, handRank: rank }))}
+                          className={`rounded-lg border px-3 py-2 text-sm transition-all ${
+                            challengeVote.handRank === rank
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                          }`}
+                        >
+                          {rank}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={submitChallengeVote}
+                    disabled={
+                      (guessPhase.needRetina && !challengeVote.cardRank) ||
+                      (guessPhase.needFingerprint && !challengeVote.handRank)
+                    }
+                    className="btn-primary text-sm"
+                  >
+                    Submit vote
+                  </button>
+                </div>
               </div>
             )}
           </div>

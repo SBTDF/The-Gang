@@ -217,6 +217,20 @@ function needsPreShowdownGuess(room) {
   );
 }
 
+export const CARD_RANK_OPTIONS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+export const HAND_RANK_OPTIONS = [
+  'High Card',
+  'Pair',
+  'Two Pair',
+  'Three of a Kind',
+  'Straight',
+  'Flush',
+  'Full House',
+  'Four of a Kind',
+  'Straight Flush',
+  'Royal Flush',
+];
+
 function startShowdown(room) {
   const redChips = room.players
     .map((p) => ({ id: p.id, chip: p.chips.red ?? 999 }))
@@ -270,6 +284,22 @@ export function getShowdownStep(room) {
   };
 }
 
+function chooseMajorityVote(votes, fallback) {
+  if (!votes || votes.length === 0) return fallback ?? null;
+  const counts = {};
+  for (const vote of votes) {
+    if (vote == null) continue;
+    counts[vote] = (counts[vote] || 0) + 1;
+  }
+
+  const entries = Object.entries(counts);
+  if (entries.length === 0) return fallback ?? null;
+
+  const max = Math.max(...entries.map(([, count]) => count));
+  const winners = entries.filter(([, count]) => count === max).map(([value]) => value);
+  return winners[Math.floor(Math.random() * winners.length)];
+}
+
 function sanitizeGuessPhase(room) {
   const gp = room.guessPhase;
   if (!gp) return null;
@@ -282,7 +312,13 @@ function sanitizeGuessPhase(room) {
     voteCount: Object.keys(gp.votes).length,
     voterCount: voters.length,
     confirmed: gp.confirmed,
-    myVote: null,
+    resolvedRetinaGuess: gp.retinaGuess ?? null,
+    resolvedFingerprintGuess: gp.fingerprintGuess ?? null,
+    myVote: gp.votes[room.lastViewerId] || null,
+    options: {
+      retina: gp.needRetina ? [...CARD_RANK_OPTIONS] : [],
+      fingerprint: gp.needFingerprint ? [...HAND_RANK_OPTIONS] : [],
+    },
   };
 }
 
@@ -314,39 +350,36 @@ export function submitGuess(room, playerId, { cardRank, handRank }) {
     return { error: 'Chọn hạng bài (Fingerprint Scan)' };
   }
 
-  gp.votes[playerId] = { cardRank: cardRank || null, handRank: handRank || null };
+  gp.votes[playerId] = {
+    cardRank: gp.needRetina ? cardRank : null,
+    handRank: gp.needFingerprint ? handRank : null,
+  };
 
   const voters = room.players.filter((p) => p.id !== gp.targetPlayerId);
   const allVoted = voters.every((p) => gp.votes[p.id]);
 
   if (!allVoted) {
-    return { ok: true, waiting: true };
+    return { ok: true, waiting: true, allVoted: false };
   }
 
   const retinaVotes = gp.needRetina
-    ? [...new Set(voters.map((p) => gp.votes[p.id].cardRank))]
+    ? voters.map((p) => gp.votes[p.id].cardRank)
     : [];
   const fingerprintVotes = gp.needFingerprint
-    ? [...new Set(voters.map((p) => gp.votes[p.id].handRank))]
+    ? voters.map((p) => gp.votes[p.id].handRank)
     : [];
 
-  if (gp.needRetina && retinaVotes.length !== 1) {
-    gp.votes = {};
-    return { error: 'Chưa thống nhất giá trị lá (Retina Scan) — hãy bỏ phiếu lại' };
-  }
-  if (gp.needFingerprint && fingerprintVotes.length !== 1) {
-    gp.votes = {};
-    return { error: 'Chưa thống nhất hạng bài (Fingerprint Scan) — hãy bỏ phiếu lại' };
-  }
-
-  gp.retinaGuess = gp.needRetina ? retinaVotes[0] : null;
-  gp.fingerprintGuess = gp.needFingerprint ? fingerprintVotes[0] : null;
+  gp.retinaGuess = gp.needRetina ? chooseMajorityVote(retinaVotes, retinaVotes[0]) : null;
+  gp.fingerprintGuess = gp.needFingerprint ? chooseMajorityVote(fingerprintVotes, fingerprintVotes[0]) : null;
   gp.confirmed = true;
 
   room.gameState = PHASES.SHOWDOWN;
-  addLog(room, `Đoán đã thống nhất — lật bài ${gp.targetName}`);
+  addLog(
+    room,
+    `Đoán đã thống nhất — Retina ${gp.retinaGuess ?? '—'} | Fingerprint ${gp.fingerprintGuess ?? '—'} | lật bài ${gp.targetName}`
+  );
 
-  return { ok: true, guessConfirmed: true };
+  return { ok: true, guessConfirmed: true, allVoted: true };
 }
 
 export function processShowdownStep(room) {

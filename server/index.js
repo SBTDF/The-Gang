@@ -15,6 +15,7 @@ import {
   processShowdownStep,
   getShowdownStep,
   startNextHeist,
+  submitGuess,
   PHASES,
 } from './src/gameEngine.js';
 
@@ -220,6 +221,22 @@ io.on('connection', (socket) => {
       text: EMOTES[emoteId] || emoteId,
       targetPlayerId,
     });
+  });
+
+  socket.on('SUBMIT_GUESS', ({ cardRank, handRank }) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = submitGuess(room, socket.id, { cardRank, handRank });
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
+    if (result.guessConfirmed) {
+      const step = getShowdownStep(room);
+      io.to(code).emit('SHOWDOWN_STEP', step);
+    }
   });
 
   socket.on('disconnect', () => {
