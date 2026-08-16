@@ -3,6 +3,8 @@ import http from 'http';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import path from 'path';
+import { existsSync } from 'fs';
+import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
   createRoom,
@@ -38,6 +40,24 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3001;
 const rooms = {};
+const clientDist = path.join(__dirname, '../client/dist');
+const clientEntry = path.join(clientDist, 'index.html');
+
+function ensureClientBundle() {
+  if (existsSync(clientEntry)) return;
+
+  console.warn('Client build not found at', clientEntry, '— building it before serving the app.');
+  const rootDir = path.join(__dirname, '..');
+  const result = spawnSync('npm', ['run', 'build', '--workspace', 'client'], {
+    cwd: rootDir,
+    stdio: 'inherit',
+    shell: true,
+  });
+
+  if (result.status !== 0) {
+    throw new Error('Failed to build the client bundle before starting the server.');
+  }
+}
 
 function getRoomBySocket(socketId) {
   for (const [code, room] of Object.entries(rooms)) {
@@ -314,11 +334,18 @@ io.on('connection', (socket) => {
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 
-const clientDist = path.join(__dirname, '../client/dist');
+try {
+  ensureClientBundle();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
 app.use(express.static(clientDist));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/socket.io')) return;
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
+  const target = path.join(clientDist, 'index.html');
+  res.sendFile(target, (err) => {
     if (err) res.status(404).json({ message: 'Client not built yet' });
   });
 });
