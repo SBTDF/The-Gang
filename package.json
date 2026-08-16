@@ -11,7 +11,7 @@
     "install:all": "npm install --workspace server && npm install --workspace client",
     "build": "npm run build --workspace client",
     "build:all": "npm run build --workspace client && npm run build --workspace server",
-    "prestart": "npm run build --workspace client",
+    "postinstall": "npm run build --workspace client",
     "start": "node server/index.js"
   }
 }

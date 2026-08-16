@@ -7,8 +7,6 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: CLIENT_URL
