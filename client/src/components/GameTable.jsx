@@ -86,6 +86,7 @@ export default function GameTable() {
   const myHighlightKeys = useMemo(() => getHighlightCardKeys(myBestHand), [myBestHand]);
   const currentSelfChip = isChipPhase ? (myRoundChoice ?? me?.chips?.[currentChipColor] ?? null) : (me?.chips?.[currentChipColor] ?? null);
   const selfPastChips = ['white', 'yellow', 'orange', 'red'].filter((chipColor) => chipColor !== currentChipColor && me?.chips?.[chipColor] != null);
+  const tradeTimeLeftMs = room.tradeOffer && room.tradeOffer.expiresAt ? Math.max(0, room.tradeOffer.expiresAt - now) : 0;
 
   const submitChallengeVote = (confirm = false) => {
     if (!guessPhase || myId === guessPhase.targetPlayerId || challengeLocked) return;
@@ -246,11 +247,12 @@ export default function GameTable() {
                   onChipClick={() => handlePlayerChipClick(p)}
                   onEmote={() => setEmoteTarget(p.id)}
                   onTrade={() => setTradeTarget(p.id)}
-                  emote={emotes.find((e) => e.targetPlayerId === p.id || e.fromId === p.id)}
+                  emote={emotes.filter((e) => (e.targetPlayerId === p.id || e.fromId === p.id) && (e.expiresAt ?? 0) > now).at(-1) ?? null}
                   showCards={gameState === 'SHOWDOWN' && p.cards}
                   roundSelections={room.roundSelections}
                   roundConfirmed={room.roundConfirmed}
                   tradeDisabled={tradePlayers.has(p.id) || (room.tradeOffer && (room.tradeOffer.fromPlayerId === p.id || room.tradeOffer.toPlayerId === p.id))}
+                  now={now}
                 />
               );
             })}
@@ -600,7 +602,7 @@ export default function GameTable() {
               <span className="font-bold text-gold">{room.tradeOffer.toChipValue}</span>
             </p>
             <p className="mt-2 text-xs text-white/50">
-              {Math.ceil((room.tradeOffer.timeLeftMs ?? 15000) / 1000)}s left
+              {Math.ceil((tradeTimeLeftMs ?? 0) / 1000)}s left
             </p>
             {room.tradeOffer.toPlayerId === myId && (
               <div className="mt-4 flex justify-center gap-2">
@@ -664,9 +666,12 @@ function PlayerSlot({
   roundConfirmed,
   tradeDisabled,
   emote,
+  now,
 }) {
   const chipVal = isChipPhase ? roundSelections?.[player.id] ?? player.chips?.[currentChipColor] ?? null : player.chips?.[currentChipColor] ?? null;
   const isConfirmed = !!roundConfirmed?.[player.id];
+  const emoteAge = emote ? (now - (emote.createdAt ?? Date.now())) : 0;
+  const emoteOpacity = emote ? Math.max(0, 1 - emoteAge / 1500) : 0;
 
   return (
     <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10">
@@ -681,7 +686,10 @@ function PlayerSlot({
         )}
       </div>
       {emote && (
-        <div className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/70 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse">
+        <div
+          className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/80 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse transition-opacity duration-200"
+          style={{ opacity: emoteOpacity }}
+        >
           {emote.text}
         </div>
       )}

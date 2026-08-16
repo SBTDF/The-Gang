@@ -733,6 +733,10 @@ export function sanitizeRoomForClient(room, viewerId) {
     resolveGuessPhase(room, 'timeout');
   }
 
+  if (room.tradeOffer && room.tradeOffer.expiresAt <= Date.now()) {
+    room.tradeOffer = null;
+  }
+
   const guessSanitized = room.guessPhase
     ? {
       ...sanitizeGuessPhase(room, viewerId),
@@ -763,6 +767,7 @@ export function sanitizeRoomForClient(room, viewerId) {
     roundConfirmed: room.roundConfirmed || {},
     tradeOffer: room.tradeOffer && room.tradeOffer.expiresAt > Date.now() ? {
       ...room.tradeOffer,
+      expiresAt: room.tradeOffer.expiresAt,
       timeLeftMs: Math.max(0, room.tradeOffer.expiresAt - Date.now()),
     } : null,
     players: room.players.map((p) => ({

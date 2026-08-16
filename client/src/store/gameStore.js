@@ -27,9 +27,21 @@ export const useGameStore = create((set) => ({
   setHeistResult: (heistResult) => set({ heistResult }),
   setSelectedChip: (selectedChip) => set({ selectedChip }),
   addEmote: (emote) =>
-    set((s) => ({
-      emotes: [...s.emotes.slice(-8), { ...emote, id: Date.now() }],
-    })),
+    set((s) => {
+      const now = Date.now();
+      const activeEmotes = s.emotes.filter((item) => (item.expiresAt ?? 0) > now);
+      return {
+        emotes: [
+          ...activeEmotes.slice(-8),
+          {
+            ...emote,
+            id: `${now}-${Math.random().toString(16).slice(2)}`,
+            createdAt: now,
+            expiresAt: now + 1800,
+          },
+        ],
+      };
+    }),
   reset: () =>
     set({
       screen: 'menu',
