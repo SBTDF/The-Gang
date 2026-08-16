@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { socket } from '../socket';
 import { useGameStore } from '../store/gameStore';
-import { evaluateBestHand, formatCardLabel } from '../utils/handUtils';
+import { evaluateBestHand, formatCardLabel, getHighlightCardKeys } from '../utils/handUtils';
 import Card from './Card';
 import Chip from './Chip';
 import VaultAlarm from './VaultAlarm';
@@ -82,6 +82,7 @@ export default function GameTable() {
     if (!myCards?.length || !communityCards) return null;
     return evaluateBestHand(myCards, communityCards);
   }, [myCards, communityCards]);
+  const myBestHighlightKeys = useMemo(() => getHighlightCardKeys(myBestHand), [myBestHand]);
 
   const submitChallengeVote = (confirm = false) => {
     if (!guessPhase || myId === guessPhase.targetPlayerId || challengeLocked) return;
@@ -270,7 +271,7 @@ export default function GameTable() {
 
             {/* Chip pool */}
             {isChipPhase && (
-              <div className="glass-panel rounded-2xl px-4 py-3 text-center space-y-2 shadow-[0_8px_20px_rgba(0,0,0,0.15)] border border-gold/10">
+              <div className="glass-panel relative z-10 rounded-2xl px-4 py-3 text-center space-y-2 shadow-[0_8px_20px_rgba(0,0,0,0.15)] border border-gold/10">
                 <p className="text-[10px] uppercase tracking-[0.22em] text-gold/80">{PHASE_HINTS[gameState]}</p>
                 <div className="flex flex-wrap justify-center gap-2">
                   {availableChips?.map((v) => (
@@ -338,7 +339,7 @@ export default function GameTable() {
             )}
 
             {gameState === 'SHOWDOWN_GUESS' && guessPhase && myId !== guessPhase.targetPlayerId && (
-              <div className="glass-panel mt-4 w-full max-w-xl rounded-2xl border border-gold/20 p-4 shadow-[0_12px_28px_rgba(0,0,0,0.2)]">
+              <div className="glass-panel relative z-20 mt-4 w-full max-w-xl rounded-2xl border border-gold/20 p-4 shadow-[0_12px_28px_rgba(0,0,0,0.2)]">
                 <div className="mb-3 text-center">
                   <p className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Challenge vote</p>
                   <h3 className="mt-2 text-xl font-semibold text-white">
@@ -364,8 +365,8 @@ export default function GameTable() {
                               setChallengeVote((prev) => ({ ...prev, cardRank: rank }));
                             }}
                             className={`rounded-lg border px-3 py-2 text-sm transition-all ${challengeVote.cardRank === rank
-                                ? 'border-gold bg-gold/20 text-gold'
-                                : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
                               }`}
                           >
                             <span className="flex items-center gap-2">
@@ -394,8 +395,8 @@ export default function GameTable() {
                               setChallengeVote((prev) => ({ ...prev, handRank: rank }));
                             }}
                             className={`rounded-lg border px-3 py-2 text-sm transition-all ${challengeVote.handRank === rank
-                                ? 'border-gold bg-gold/20 text-gold'
-                                : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
+                              ? 'border-gold bg-gold/20 text-gold'
+                              : 'border-white/10 bg-white/5 text-white/80 hover:bg-white/10'
                               }`}
                           >
                             <span className="flex items-center gap-2">
@@ -483,6 +484,13 @@ export default function GameTable() {
                     selected={selectedChip === me.chips[currentChipColor]}
                   />
                 )}
+                <div className="flex gap-0.5">
+                  {['white', 'yellow', 'orange', 'red']
+                    .filter((c) => c !== currentChipColor && me?.chips?.[c] != null)
+                    .map((c) => (
+                      <Chip key={`${me.id}-${c}`} value={me.chips[c]} color={c} small />
+                    ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => setEmoteTarget(myId)}
@@ -501,9 +509,17 @@ export default function GameTable() {
                 </div>
 
                 <div className="mb-2 flex flex-wrap gap-2">
-                  {myBestHand.combo?.map((card, index) => (
-                    <Card key={`${card.rank}-${card.suit}-${index}`} card={card} size="sm" highlight />
-                  ))}
+                  {myBestHand.combo?.map((card, index) => {
+                    const key = `${card.rank}-${card.suit}`;
+                    return (
+                      <Card
+                        key={`${card.rank}-${card.suit}-${index}`}
+                        card={card}
+                        size="sm"
+                        highlight={myBestHighlightKeys.has(key)}
+                      />
+                    );
+                  })}
                 </div>
 
                 <p className="text-xs text-white/70">
@@ -534,21 +550,29 @@ export default function GameTable() {
         <div className="fixed right-4 top-20 z-20 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
           <p className="mb-2 text-[10px] uppercase tracking-[0.25em] text-gold/80">Final Ranking</p>
           <div className="space-y-2">
-            {room.leaderboard.map((entry) => (
-              <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
-                <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                  <span className="text-white/80">#{entry.placement} {entry.name}</span>
-                  <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
-                </div>
-                {entry.hand?.combo?.length > 0 && (
-                  <div className="flex gap-1.5">
-                    {entry.hand.combo.map((card, idx) => (
-                      <Card key={`${entry.id}-${idx}-${card.rank}-${card.suit}`} card={card} size="sm" highlight />
-                    ))}
+            {room.leaderboard.map((entry) => {
+              const highlightKeys = getHighlightCardKeys(entry.hand);
+              return (
+                <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                    <span className="text-white/80">#{entry.placement} {entry.name}</span>
+                    <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {entry.hand?.combo?.length > 0 && (
+                    <div className="flex gap-1.5">
+                      {entry.hand.combo.map((card, idx) => (
+                        <Card
+                          key={`${entry.id}-${idx}-${card.rank}-${card.suit}`}
+                          card={card}
+                          size="sm"
+                          highlight={highlightKeys.has(`${card.rank}-${card.suit}`)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -638,8 +662,11 @@ function PlayerSlot({
   tradeDisabled,
   emote,
 }) {
-  const chipVal = isChipPhase ? roundSelections?.[player.id] ?? player.chips?.[currentChipColor] ?? null : player.chips?.[currentChipColor] ?? null;
+  const chipVal = isChipPhase ? roundSelections?.[player.id] ?? player.chips?.[currentChipColor] ?? null : null;
   const isConfirmed = !!roundConfirmed?.[player.id];
+  const previousChips = ['white', 'yellow', 'orange', 'red']
+    .filter((c) => c !== currentChipColor && player.chips?.[c] != null)
+    .map((c) => ({ color: c, value: player.chips[c] }));
 
   return (
     <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10">
@@ -697,11 +724,9 @@ function PlayerSlot({
       )}
       {/* Past chips */}
       <div className="flex gap-0.5">
-        {['white', 'yellow', 'orange', 'red']
-          .filter((c) => c !== currentChipColor && player.chips?.[c] != null)
-          .map((c) => (
-            <Chip key={c} value={player.chips[c]} color={c} small />
-          ))}
+        {previousChips.map(({ color, value }) => (
+          <Chip key={`${player.id}-${color}`} value={value} color={color} small />
+        ))}
       </div>
     </div>
   );
