@@ -14,7 +14,7 @@ const SUIT_COLORS = {
 
 export default function Card({ card, faceDown = false, size = 'md' }) {
   const sizes = {
-    sm: 'w-10 h-14 text-xs',
+    sm: 'w-10 h-14 text-[10px]',
     md: 'w-14 h-20 sm:w-16 sm:h-24 text-sm sm:text-base',
     lg: 'w-16 h-24 sm:w-20 sm:h-28 text-base sm:text-lg',
   };
@@ -22,9 +22,11 @@ export default function Card({ card, faceDown = false, size = 'md' }) {
   if (faceDown || !card) {
     return (
       <div
-        className={`${sizes[size]} rounded-lg bg-gradient-to-br from-indigo-900 to-indigo-950 border-2 border-gold/40 shadow-card flex items-center justify-center flex-shrink-0`}
+        className={`${sizes[size]} rounded-xl border-2 border-gold/45 bg-gradient-to-br from-[#1a254d] via-[#101a35] to-[#0d162d] shadow-[0_10px_25px_rgba(0,0,0,0.35)] flex items-center justify-center flex-shrink-0 ring-1 ring-white/5`}
       >
-        <span className="text-gold/60 text-lg sm:text-xl font-display">G</span>
+        <div className="flex h-full w-full items-center justify-center rounded-[0.7rem] border border-gold/20 bg-gradient-to-br from-gold/10 to-transparent">
+          <span className="text-gold/70 text-lg sm:text-xl font-display tracking-widest">G</span>
+        </div>
       </div>
     );
   }
@@ -33,13 +35,13 @@ export default function Card({ card, faceDown = false, size = 'md' }) {
 
   return (
     <div
-      className={`${sizes[size]} rounded-lg bg-white border border-gray-200 shadow-card flex flex-col items-center justify-between py-1 px-0.5 flex-shrink-0 select-none`}
+      className={`${sizes[size]} rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 shadow-[0_12px_25px_rgba(0,0,0,0.38)] flex flex-col items-center justify-between py-1 px-0.5 flex-shrink-0 select-none transition-transform duration-200 hover:-translate-y-1`}
     >
-      <span className={`font-bold leading-none ${suitClass}`}>{card.rank}</span>
+      <span className={`font-black leading-none ${suitClass}`}>{card.rank}</span>
       <span className={`text-xl sm:text-2xl leading-none ${suitClass}`}>
         {SUIT_SYMBOLS[card.suit]}
       </span>
-      <span className={`font-bold leading-none rotate-180 ${suitClass}`}>{card.rank}</span>
+      <span className={`font-black leading-none rotate-180 ${suitClass}`}>{card.rank}</span>
     </div>
   );
 }

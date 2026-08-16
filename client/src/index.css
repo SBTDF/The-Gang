@@ -13,18 +13,24 @@
   body {
     @apply bg-felt-dark text-white font-body antialiased;
     background-image:
-      radial-gradient(ellipse at 50% 0%, rgba(212, 175, 55, 0.08) 0%, transparent 60%),
-      radial-gradient(circle at 20% 80%, rgba(26, 77, 62, 0.5) 0%, transparent 40%);
+      radial-gradient(ellipse at 50% 0%, rgba(212, 175, 55, 0.10) 0%, transparent 60%),
+      radial-gradient(circle at 15% 85%, rgba(36, 118, 89, 0.42) 0%, transparent 35%),
+      linear-gradient(180deg, #090d17 0%, #101827 18%, #0f2e26 100%);
+  }
+
+  ::selection {
+    background: rgba(240, 208, 96, 0.35);
+    color: white;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply px-6 py-3 rounded-xl font-semibold bg-gold text-felt-dark hover:bg-gold-light active:scale-[0.98] transition-all shadow-lg disabled:opacity-40 disabled:pointer-events-none;
+    @apply px-6 py-3 rounded-xl font-semibold bg-gold text-felt-dark hover:bg-gold-light active:scale-[0.98] transition-all shadow-[0_8px_18px_rgba(212,175,55,0.35)] disabled:opacity-40 disabled:pointer-events-none;
   }
 
   .btn-secondary {
-    @apply px-4 py-2 rounded-lg font-medium bg-white/10 border border-white/20 hover:bg-white/20 active:scale-[0.98] transition-all;
+    @apply px-4 py-2 rounded-lg font-medium bg-white/10 border border-white/20 hover:bg-white/20 active:scale-[0.98] transition-all backdrop-blur-sm;
   }
 
   .input-field {
@@ -32,11 +38,19 @@
   }
 
   .challenge-card {
-    @apply bg-white/5 rounded-2xl border border-white/10 shadow-md;
+    @apply bg-white/5 rounded-2xl border border-white/10 shadow-md backdrop-blur-sm;
   }
 
   .felt-table {
-    @apply relative rounded-[2rem] border-4 border-gold/30 bg-gradient-to-b from-felt-light to-felt shadow-2xl;
+    @apply relative rounded-[2rem] border-[3px] border-gold/35 bg-gradient-to-b from-felt-light via-felt to-felt-dark shadow-[0_20px_50px_rgba(0,0,0,0.35)];
+  }
+
+  .glass-panel {
+    @apply bg-black/25 border border-white/10 backdrop-blur-md shadow-[0_10px_28px_rgba(0,0,0,0.22)];
+  }
+
+  .status-badge {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-white/80;
   }
 }
 
