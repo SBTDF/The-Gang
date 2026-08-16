@@ -42,10 +42,15 @@ export default function GameTable() {
 
   if (!room) return null;
 
+  const { players, communityCards, gameState, currentChipColor, availableChips, lockedChips } = room;
   const guessPhase = room?.guessPhase;
   const myRoundChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
   const myConfirmed = !!room.roundConfirmed?.[myId];
   const confirmedCount = Object.values(room.roundConfirmed || {}).filter(Boolean).length;
+  const tradePlayers = room.tradeOffer ? new Set([room.tradeOffer.fromPlayerId, room.tradeOffer.toPlayerId]) : new Set();
+  const tradeNotice = room.tradeOffer
+    ? `${players.find((p) => p.id === room.tradeOffer.fromPlayerId)?.name ?? 'Player'} is initiating a trade with ${players.find((p) => p.id === room.tradeOffer.toPlayerId)?.name ?? 'player'}`
+    : null;
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 250);
@@ -67,8 +72,6 @@ export default function GameTable() {
     setChallengeLocked(Boolean(myVote.confirmed));
   }, [guessPhase]);
 
-  const { players, communityCards, gameState, currentChipColor, availableChips, lockedChips } =
-    room;
   const opponents = players.filter((p) => p.id !== myId);
   const me = players.find((p) => p.id === myId);
   const myChipValue = me?.chips?.[currentChipColor];
@@ -145,6 +148,8 @@ export default function GameTable() {
 
   const handleRequestTrade = (targetPlayerId) => {
     if (!isChipPhase || !currentChipColor || myConfirmed) return;
+    if (room.tradeOffer && (room.tradeOffer.fromPlayerId === myId || room.tradeOffer.toPlayerId === myId)) return;
+    if (room.tradeOffer && (room.tradeOffer.fromPlayerId === targetPlayerId || room.tradeOffer.toPlayerId === targetPlayerId)) return;
     const myChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
     const targetChoice = room.roundSelections?.[targetPlayerId] ?? null;
     if (myChoice == null || targetChoice == null) return;
@@ -239,6 +244,9 @@ export default function GameTable() {
                   onTrade={() => setTradeTarget(p.id)}
                   emote={emotes.find((e) => e.targetPlayerId === p.id || e.fromId === p.id)}
                   showCards={gameState === 'SHOWDOWN' && p.cards}
+                  roundSelections={room.roundSelections}
+                  roundConfirmed={room.roundConfirmed}
+                  tradeDisabled={tradePlayers.has(p.id) || (room.tradeOffer && (room.tradeOffer.fromPlayerId === p.id || room.tradeOffer.toPlayerId === p.id))}
                 />
               );
             })}
@@ -320,25 +328,9 @@ export default function GameTable() {
                   {heistResult.success ? '✓ Heist thành công!' : '✗ Heist thất bại!'}
                 </p>
 
-                {room.leaderboard?.length > 0 && (
-                  <div className="glass-panel mx-auto max-w-xl rounded-2xl border border-gold/20 p-4 text-left">
-                    <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-gold/80">Final leaderboard</p>
-                    <div className="space-y-2">
-                      {room.leaderboard.map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm">
-                          <span className="text-white/80">#{entry.placement} {entry.name}</span>
-                          <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {isHost && (
-                  <button type="button" onClick={handleNextHeist} className="btn-primary">
-                    Heist tiếp theo
-                  </button>
-                )}
+                <button type="button" onClick={handleNextHeist} className="btn-primary">
+                  Heist tiếp theo
+                </button>
                 {!isHost && (
                   <p className="text-white/50 text-sm animate-pulse">Chờ host...</p>
                 )}
@@ -510,7 +502,7 @@ export default function GameTable() {
 
                 <div className="mb-2 flex flex-wrap gap-2">
                   {myBestHand.combo?.map((card, index) => (
-                    <Card key={`${card.rank}-${card.suit}-${index}`} card={card} size="sm" />
+                    <Card key={`${card.rank}-${card.suit}-${index}`} card={card} size="sm" highlight />
                   ))}
                 </div>
 
@@ -538,16 +530,36 @@ export default function GameTable() {
         </div>
       )}
 
-      {/* Recent emotes */}
-      <div className="fixed top-20 right-2 z-20 space-y-1 max-w-[200px] pointer-events-none">
-        {emotes.slice(-3).map((e) => (
-          <div key={e.id} className="bg-black/60 rounded-lg px-2 py-1 text-xs border border-white/10">
-            <span className="text-gold">{e.fromName}:</span> {e.text}
+      {room.leaderboard?.length > 0 && (
+        <div className="fixed right-4 top-20 z-20 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-gold/20 bg-black/60 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+          <p className="mb-2 text-[10px] uppercase tracking-[0.25em] text-gold/80">Final Ranking</p>
+          <div className="space-y-2">
+            {room.leaderboard.map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-white/80">#{entry.placement} {entry.name}</span>
+                  <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
+                </div>
+                {entry.hand?.combo?.length > 0 && (
+                  <div className="flex gap-1.5">
+                    {entry.hand.combo.map((card, idx) => (
+                      <Card key={`${entry.id}-${idx}-${card.rank}-${card.suit}`} card={card} size="sm" highlight />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      {room.tradeOffer && (
+      {tradeNotice && (
+        <div className="fixed top-20 left-1/2 z-30 -translate-x-1/2 rounded-full border border-gold/30 bg-black/60 px-3 py-1.5 text-xs text-gold shadow-[0_8px_22px_rgba(0,0,0,0.25)]">
+          {tradeNotice}
+        </div>
+      )}
+
+      {room.tradeOffer && (myId === room.tradeOffer.fromPlayerId || myId === room.tradeOffer.toPlayerId) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="glass-panel w-full max-w-md rounded-2xl border border-gold/20 p-5 text-center">
             <p className="text-[10px] uppercase tracking-[0.25em] text-gold/80">Trade request</p>
@@ -613,11 +625,24 @@ export default function GameTable() {
   );
 }
 
-function PlayerSlot({ player, currentChipColor, isChipPhase, onChipClick, onEmote, onTrade, showCards }) {
-  const chipVal = currentChipColor ? player.chips?.[currentChipColor] : null;
+function PlayerSlot({
+  player,
+  currentChipColor,
+  isChipPhase,
+  onChipClick,
+  onEmote,
+  onTrade,
+  showCards,
+  roundSelections,
+  roundConfirmed,
+  tradeDisabled,
+  emote,
+}) {
+  const chipVal = isChipPhase ? roundSelections?.[player.id] ?? player.chips?.[currentChipColor] ?? null : player.chips?.[currentChipColor] ?? null;
+  const isConfirmed = !!roundConfirmed?.[player.id];
 
   return (
-    <div className="player-slot glass-panel flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10">
+    <div className="player-slot glass-panel relative flex flex-col items-center gap-1 min-w-[72px] sm:min-w-[88px] rounded-2xl px-2 py-2 border border-white/10">
       <div className="flex gap-0.5">
         {showCards && player.cards ? (
           player.cards.map((c, i) => <Card key={i} card={c} size="sm" />)
@@ -628,6 +653,11 @@ function PlayerSlot({ player, currentChipColor, isChipPhase, onChipClick, onEmot
           </>
         )}
       </div>
+      {emote && (
+        <div className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/70 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse">
+          {emote.text}
+        </div>
+      )}
       <button
         type="button"
         onClick={onEmote}
@@ -636,12 +666,19 @@ function PlayerSlot({ player, currentChipColor, isChipPhase, onChipClick, onEmot
         {player.name}
       </button>
       {chipVal != null && (
-        <Chip
-          value={chipVal}
-          color={currentChipColor}
-          small
-          onClick={isChipPhase ? onChipClick : undefined}
-        />
+        <div className="flex flex-col items-center gap-1">
+          <Chip
+            value={chipVal}
+            color={currentChipColor}
+            small
+            onClick={isChipPhase ? onChipClick : undefined}
+          />
+          {isChipPhase && isConfirmed && (
+            <div className="rounded-full border border-emerald-400/50 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">
+              Confirmed
+            </div>
+          )}
+        </div>
       )}
       {player.voteBadge && (
         <div className="rounded-full border border-gold/50 bg-gold/10 px-2 py-0.5 text-[10px] text-gold">
@@ -649,8 +686,13 @@ function PlayerSlot({ player, currentChipColor, isChipPhase, onChipClick, onEmot
         </div>
       )}
       {isChipPhase && onTrade && (
-        <button type="button" onClick={onTrade} className="btn-secondary px-2 py-1 text-[10px]">
-          Trade
+        <button
+          type="button"
+          onClick={tradeDisabled ? undefined : onTrade}
+          disabled={tradeDisabled}
+          className={`px-2 py-1 text-[10px] rounded-lg border ${tradeDisabled ? 'bg-white/5 text-white/30 border-white/10 cursor-not-allowed' : 'btn-secondary'}`}
+        >
+          {tradeDisabled ? 'Trading' : 'Trade'}
         </button>
       )}
       {/* Past chips */}
