@@ -1,17 +1,12 @@
 {
   "name": "the-gang",
   "private": true,
-  "workspaces": [
-    "client",
-    "server"
-  ],
   "scripts": {
-    "dev:server": "npm run dev --workspace server",
-    "dev:client": "npm run dev --workspace client",
-    "install:all": "npm install --workspace server && npm install --workspace client",
-    "build": "npm run build --workspace client",
-    "build:all": "npm run build --workspace client && npm run build --workspace server",
-    "prestart": "npm run build --workspace client",
-    "start": "node server/index.js"
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "build": "npm install --prefix client && npm run build --prefix client && npm install --prefix server",
+    "build:all": "npm run build && npm run build --prefix server",
+    "start": "npm start --prefix server"
   }
 }
