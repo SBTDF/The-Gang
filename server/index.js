@@ -223,11 +223,11 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('SUBMIT_GUESS', ({ cardRank, handRank }) => {
+  socket.on('SUBMIT_GUESS', ({ cardRank, handRank, confirm = false }) => {
     const found = getRoomBySocket(socket.id);
     if (!found) return;
     const { code, room } = found;
-    const result = submitGuess(room, socket.id, { cardRank, handRank });
+    const result = submitGuess(room, socket.id, { cardRank, handRank, confirm });
     if (result.error) {
       socket.emit('ERROR', { message: result.error });
       return;

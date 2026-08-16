@@ -237,6 +237,13 @@ function startShowdown(room) {
     .sort((a, b) => a.chip - b.chip);
   room.showdownOrder = redChips.map((r) => r.id);
   room.showdownIndex = 0;
+
+  if (needsPreShowdownGuess(room)) {
+    initGuessPhase(room);
+    return;
+  }
+
+  room.gameState = PHASES.SHOWDOWN;
   room.guessPhase = null;
   addLog(room, 'Showdown! Xếp hạng theo chip đỏ (1→N)...');
 }
@@ -254,13 +261,56 @@ function initGuessPhase(room) {
     confirmed: false,
     retinaGuess: null,
     fingerprintGuess: null,
+    startedAt: Date.now(),
+    expiresAt: Date.now() + 30000,
   };
   addLog(room, `Retina/Fingerprint Scan — đoán bài của ${target.name} trước khi lật`);
 }
 
+function buildVoteSummary(votes, key) {
+  const counts = {};
+  for (const vote of Object.values(votes || {})) {
+    if (!vote || vote[key] == null || vote[key] === undefined) continue;
+    counts[vote[key]] = (counts[vote[key]] || 0) + 1;
+  }
+  return counts;
+}
+
+function resolveGuessPhase(room, reason = 'finalized') {
+  const gp = room.guessPhase;
+  if (!gp) return { ok: true };
+
+  const voters = room.players.filter((p) => p.id !== gp.targetPlayerId);
+  const allVotes = voters.map((p) => gp.votes[p.id]).filter(Boolean);
+
+  if (gp.needRetina) {
+    const retinaVotes = allVotes
+      .map((vote) => vote.cardRank)
+      .filter((value) => value != null);
+    gp.retinaGuess = chooseMajorityVote(retinaVotes, retinaVotes[0] ?? null);
+  }
+
+  if (gp.needFingerprint) {
+    const fingerprintVotes = allVotes
+      .map((vote) => vote.handRank)
+      .filter((value) => value != null);
+    gp.fingerprintGuess = chooseMajorityVote(fingerprintVotes, fingerprintVotes[0] ?? null);
+  }
+
+  gp.confirmed = true;
+  gp.resolvedAt = Date.now();
+  gp.reason = reason;
+  room.gameState = PHASES.SHOWDOWN;
+  addLog(
+    room,
+    `Đoán đã thống nhất — Retina ${gp.retinaGuess ?? '—'} | Fingerprint ${gp.fingerprintGuess ?? '—'} | lật bài ${gp.targetName}`
+  );
+  return { ok: true, guessConfirmed: true, reason };
+}
+
 export function getShowdownStep(room) {
   if (room.gameState === PHASES.SHOWDOWN_GUESS) {
-    return { needsGuess: true, guessPhase: sanitizeGuessPhase(room) };
+    return { needsGuess: true, guessPhase: sanitizeGuessPhase(room, room.lastViewerId) };
   }
 
   if (room.gameState !== PHASES.SHOWDOWN) return null;
@@ -300,10 +350,16 @@ function chooseMajorityVote(votes, fallback) {
   return winners[Math.floor(Math.random() * winners.length)];
 }
 
-function sanitizeGuessPhase(room) {
+function sanitizeGuessPhase(room, viewerId = room.lastViewerId) {
   const gp = room.guessPhase;
   if (!gp) return null;
+
+  if (!gp.confirmed && gp.expiresAt && Date.now() >= gp.expiresAt) {
+    resolveGuessPhase(room, 'timeout');
+  }
+
   const voters = room.players.filter((p) => p.id !== gp.targetPlayerId);
+  const myVote = gp.votes[viewerId] || null;
   return {
     targetPlayerId: gp.targetPlayerId,
     targetName: gp.targetName,
@@ -314,7 +370,22 @@ function sanitizeGuessPhase(room) {
     confirmed: gp.confirmed,
     resolvedRetinaGuess: gp.retinaGuess ?? null,
     resolvedFingerprintGuess: gp.fingerprintGuess ?? null,
-    myVote: gp.votes[room.lastViewerId] || null,
+    myVote,
+    myVoteLocked: !!myVote?.confirmed,
+    expiresAt: gp.expiresAt,
+    timerMs: Math.max(0, (gp.expiresAt ?? 0) - Date.now()),
+    allConfirmed: voters.every((p) => !!gp.votes[p.id]?.confirmed),
+    voteCounts: {
+      retina: buildVoteSummary(gp.votes, 'cardRank'),
+      fingerprint: buildVoteSummary(gp.votes, 'handRank'),
+    },
+    playerVotes: room.players
+      .filter((p) => p.id !== gp.targetPlayerId)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        vote: gp.votes[p.id] || null,
+      })),
     options: {
       retina: gp.needRetina ? [...CARD_RANK_OPTIONS] : [],
       fingerprint: gp.needFingerprint ? [...HAND_RANK_OPTIONS] : [],
@@ -333,7 +404,7 @@ function validateFingerprintGuess(room, guess) {
   return hand.name === guess;
 }
 
-export function submitGuess(room, playerId, { cardRank, handRank }) {
+export function submitGuess(room, playerId, { cardRank, handRank, confirm = false }) {
   if (room.gameState !== PHASES.SHOWDOWN_GUESS || !room.guessPhase) {
     return { error: 'Không trong giai đoạn đoán' };
   }
@@ -343,43 +414,48 @@ export function submitGuess(room, playerId, { cardRank, handRank }) {
     return { error: 'Người bị đoán không được tham gia' };
   }
 
-  if (gp.needRetina && !cardRank) {
-    return { error: 'Chọn giá trị lá bài (Retina Scan)' };
-  }
-  if (gp.needFingerprint && !handRank) {
-    return { error: 'Chọn hạng bài (Fingerprint Scan)' };
+  const existing = gp.votes[playerId] || { cardRank: null, handRank: null, confirmed: false };
+
+  if (!confirm) {
+    if (gp.needRetina) existing.cardRank = cardRank ?? null;
+    if (gp.needFingerprint) existing.handRank = handRank ?? null;
+    existing.confirmed = false;
+  } else {
+    if (gp.needRetina && cardRank != null) {
+      existing.cardRank = cardRank;
+    }
+    if (gp.needFingerprint && handRank != null) {
+      existing.handRank = handRank;
+    }
   }
 
-  gp.votes[playerId] = {
-    cardRank: gp.needRetina ? cardRank : null,
-    handRank: gp.needFingerprint ? handRank : null,
-  };
+  if (confirm) {
+    if (gp.needRetina && !existing.cardRank) {
+      return { error: 'Chọn giá trị lá bài (Retina Scan)' };
+    }
+    if (gp.needFingerprint && !existing.handRank) {
+      return { error: 'Chọn hạng bài (Fingerprint Scan)' };
+    }
+    existing.confirmed = true;
+  }
+
+  gp.votes[playerId] = existing;
 
   const voters = room.players.filter((p) => p.id !== gp.targetPlayerId);
-  const allVoted = voters.every((p) => gp.votes[p.id]);
+  const allConfirmed = voters.every((p) => !!gp.votes[p.id]?.confirmed);
+  const expired = Date.now() >= (gp.expiresAt ?? Date.now() + 30000);
 
-  if (!allVoted) {
-    return { ok: true, waiting: true, allVoted: false };
+  if (allConfirmed || expired) {
+    return resolveGuessPhase(room, allConfirmed ? 'all_confirmed' : 'timeout');
   }
 
-  const retinaVotes = gp.needRetina
-    ? voters.map((p) => gp.votes[p.id].cardRank)
-    : [];
-  const fingerprintVotes = gp.needFingerprint
-    ? voters.map((p) => gp.votes[p.id].handRank)
-    : [];
-
-  gp.retinaGuess = gp.needRetina ? chooseMajorityVote(retinaVotes, retinaVotes[0]) : null;
-  gp.fingerprintGuess = gp.needFingerprint ? chooseMajorityVote(fingerprintVotes, fingerprintVotes[0]) : null;
-  gp.confirmed = true;
-
-  room.gameState = PHASES.SHOWDOWN;
-  addLog(
-    room,
-    `Đoán đã thống nhất — Retina ${gp.retinaGuess ?? '—'} | Fingerprint ${gp.fingerprintGuess ?? '—'} | lật bài ${gp.targetName}`
-  );
-
-  return { ok: true, guessConfirmed: true, allVoted: true };
+  return {
+    ok: true,
+    waiting: true,
+    allConfirmed: false,
+    locked: !!existing.confirmed,
+    myVote: gp.votes[playerId],
+  };
 }
 
 export function processShowdownStep(room) {
@@ -446,6 +522,15 @@ export function processShowdownStep(room) {
 
 function finishShowdown(room, success) {
   room.guessPhase = null;
+  room.leaderboard = room.players
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      hand: evaluateBestHand(p.cards, room.communityCards),
+      placement: 0,
+    }))
+    .sort((a, b) => compareHands(b.hand, a.hand))
+    .map((entry, index) => ({ ...entry, placement: index + 1 }));
 
   if (success) {
     room.vault++;
@@ -557,9 +642,13 @@ export function selectChip(room, playerId, chipValue, targetPlayerId = null) {
 }
 
 export function sanitizeRoomForClient(room, viewerId) {
+  if (room.gameState === PHASES.SHOWDOWN_GUESS && room.guessPhase && !room.guessPhase.confirmed && Date.now() >= (room.guessPhase.expiresAt ?? 0)) {
+    resolveGuessPhase(room, 'timeout');
+  }
+
   const guessSanitized = room.guessPhase
     ? {
-        ...sanitizeGuessPhase(room),
+        ...sanitizeGuessPhase(room, viewerId),
         myVote: room.guessPhase.votes[viewerId] || null,
         isTarget: room.guessPhase.targetPlayerId === viewerId,
       }
@@ -582,6 +671,7 @@ export function sanitizeRoomForClient(room, viewerId) {
     showdownIndex: room.showdownIndex,
     showdownOrder: room.showdownOrder,
     guessPhase: guessSanitized,
+    leaderboard: room.leaderboard || [],
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
