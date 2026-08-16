@@ -4,11 +4,9 @@ services:
     env: node
     plan: free
     branch: main
-    buildCommand: bash ./render-build.sh
+    buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: CLIENT_URL
         value: "*"
     autoDeploy: true

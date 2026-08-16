@@ -9,22 +9,13 @@ export NODE_ENV=development
 
 echo "Repo root: $SCRIPT_ROOT"
 
-echo "Building client..."
-if [ ! -d "client" ]; then
-  echo "client directory not found in $SCRIPT_ROOT" >&2
-  exit 1
-fi
-cd client
+echo "Installing workspace dependencies..."
 npm install
-npm run build
-cd "$SCRIPT_ROOT"
 
-echo "Installing server deps..."
-if [ ! -d "server" ]; then
-  echo "server directory not found in $SCRIPT_ROOT" >&2
-  exit 1
-fi
-cd server
-npm install
+echo "Building client..."
+npm run build --workspace client
+
+echo "Verifying Express..."
+node -e "import('express').then(() => console.log('Express installed successfully')).catch(err => { console.error(err); process.exit(1); })"
 
 echo "Build complete."
