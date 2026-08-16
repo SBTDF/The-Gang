@@ -9,8 +9,8 @@ export const CHALLENGE_DEFS = [
   {
     id: 'noiseSensor',
     num: 2,
-    name: 'Noise Sensors',
-    desc: 'Chip 1 sao (vòng 1–3) không thể đổi chủ sau khi lấy',
+    name: 'Noise Sensor',
+    desc: 'Khi một người chọn chip 1 sao, chip đó tự động xác nhận và khóa ngay, không thể trả về trung tâm hay bị cướp dưới mọi hình thức.',
   },
   {
     id: 'motionDetector',
@@ -31,8 +31,14 @@ export const CHALLENGE_DEFS = [
     desc: 'Bỏ chip cam, lật lá chung thứ 4 và vào vòng 4',
   },
   {
-    id: 'ventilationShaft',
+    id: 'silentAlarm',
     num: 6,
+    name: 'Signal Interference',
+    desc: 'Một lá bài trong Flop bị ẩn khỏi bàn cho tất cả người chơi, nhưng vẫn được tính vào tay tốt nhất và chỉ lộ diện khi lật bài cuối cùng.',
+  },
+  {
+    id: 'ventilationShaft',
+    num: 7,
     name: 'Ventilation Shaft',
     desc: 'Chip cao nhất (vòng 1–3) không thể đổi chủ sau khi lấy',
   },

@@ -64,6 +64,7 @@ export function createRoom(hostId, playerName, maxPlayers = 6) {
     lastHeistSuccess: null,
     gameLog: [],
     guessPhase: null,
+    hiddenCommunityCardIndex: null,
   };
 }
 
@@ -89,6 +90,7 @@ function allPlayersHaveChip(room) {
 
 function dealPocketCards(room) {
   room.deck = shuffleDeck(createDeck());
+  room.hiddenCommunityCardIndex = null;
   const cardCount = hasChallenge(room, 'securityCamera') ? 3 : 2;
   for (const player of room.players) {
     player.cards = room.deck.splice(0, cardCount);
@@ -107,6 +109,16 @@ function revealCommunity(room, count) {
   const newCards = room.deck.splice(0, count);
   room.communityCards.push(...newCards);
   return newCards;
+}
+
+function applySignalInterference(room, revealedCards) {
+  if (!hasChallenge(room, 'silentAlarm') || !revealedCards.length) return;
+  const hiddenIndex = Math.floor(Math.random() * revealedCards.length);
+  const hiddenCard = revealedCards[hiddenIndex];
+  const actualIndex = room.communityCards.length - revealedCards.length + hiddenIndex;
+  room.communityCards[actualIndex] = { ...hiddenCard, hidden: true, revealed: false };
+  room.hiddenCommunityCardIndex = actualIndex;
+  addLog(room, 'Signal Interference — one Flop card is hidden from the table.');
 }
 
 function applyFlopChallenges(room) {
@@ -177,7 +189,8 @@ export function advancePhase(room) {
   const current = room.gameState;
 
   if (current === PHASES.PRE_FLOP) {
-    revealCommunity(room, 3);
+    const revealedCards = revealCommunity(room, 3);
+    if (hasChallenge(room, 'silentAlarm')) applySignalInterference(room, revealedCards);
     room.gameState = PHASES.FLOP;
     applyFlopChallenges(room);
   } else if (current === PHASES.FLOP) {
@@ -527,6 +540,14 @@ export function processShowdownStep(room) {
 }
 
 function finishShowdown(room, success) {
+  if (hasChallenge(room, 'silentAlarm') && room.hiddenCommunityCardIndex != null && room.communityCards[room.hiddenCommunityCardIndex]) {
+    room.communityCards[room.hiddenCommunityCardIndex] = {
+      ...room.communityCards[room.hiddenCommunityCardIndex],
+      hidden: false,
+      revealed: true,
+    };
+  }
+
   room.guessPhase = null;
   room.leaderboard = room.players
     .map((p) => ({
@@ -616,6 +637,10 @@ export function returnChipToCenter(room, playerId) {
   const selected = room.roundSelections[playerId];
   if (selected == null) {
     return { ok: true, returned: false };
+  }
+
+  if (hasChallenge(room, 'noiseSensor') && selected === 1) {
+    return { error: 'Chip 1 sao đã tự động khóa và không thể trả về trung tâm.' };
   }
 
   delete room.roundSelections[playerId];
@@ -716,9 +741,15 @@ export function selectChip(room, playerId, chipValue, targetPlayerId = null) {
   room.availableChips = room.availableChips.filter((c) => c !== chipValue);
   room.roundConfirmed[playerId] = false;
 
+  if (hasChallenge(room, 'noiseSensor') && chipValue === 1) {
+    room.roundConfirmed[playerId] = true;
+    room.lockedChips.add(chipValue);
+    addLog(room, `${player.name} chọn chip 1 sao — Noise Sensor tự động khóa và xác nhận.`);
+  }
+
   if (shouldLockChip(room, chipValue)) {
     room.lockedChips.add(chipValue);
-    const reason = chipValue === 1 ? 'Noise Sensors' : 'Ventilation Shaft';
+    const reason = chipValue === 1 ? 'Noise Sensor' : 'Ventilation Shaft';
     addLog(room, `Chip ${chipValue} bị khóa (${reason})`);
   }
 

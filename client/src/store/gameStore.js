@@ -30,16 +30,14 @@ export const useGameStore = create((set) => ({
     set((s) => {
       const now = Date.now();
       const activeEmotes = s.emotes.filter((item) => (item.expiresAt ?? 0) > now);
+      const nextEmote = {
+        ...emote,
+        id: `${now}-${Math.random().toString(16).slice(2)}`,
+        createdAt: now,
+        expiresAt: now + 1800,
+      };
       return {
-        emotes: [
-          ...activeEmotes.slice(-8),
-          {
-            ...emote,
-            id: `${now}-${Math.random().toString(16).slice(2)}`,
-            createdAt: now,
-            expiresAt: now + 1800,
-          },
-        ],
+        emotes: [...activeEmotes.slice(-8), nextEmote],
       };
     }),
   reset: () =>

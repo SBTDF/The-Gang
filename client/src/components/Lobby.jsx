@@ -12,7 +12,7 @@ const CHALLENGES = [
   {
     id: 'noiseSensor',
     name: 'Noise Sensor',
-    desc: 'If a player takes the "1-star" chip it becomes Locked for that round: it cannot be stolen or returned to the center.',
+    desc: 'Once a player picks the 1-star chip, it auto-confirms and locks in place: it cannot be returned or taken back by any means.',
   },
   {
     id: 'motionDetector',
@@ -31,8 +31,8 @@ const CHALLENGES = [
   },
   {
     id: 'silentAlarm',
-    name: 'Silent Alarm',
-    desc: 'During Showdown, players may not use the Chat/Emote system — the Red Chip placement must stand on its own.',
+    name: 'Signal Interference',
+    desc: 'One card in the Flop is hidden from the center table for everyone, but it still counts toward the best hand and only reveals during the final hand reveal.',
   },
   {
     id: 'laserTripwires',

@@ -86,7 +86,9 @@ export default function GameTable() {
   const myHighlightKeys = useMemo(() => getHighlightCardKeys(myBestHand), [myBestHand]);
   const currentSelfChip = isChipPhase ? (myRoundChoice ?? me?.chips?.[currentChipColor] ?? null) : (me?.chips?.[currentChipColor] ?? null);
   const selfPastChips = ['white', 'yellow', 'orange', 'red'].filter((chipColor) => chipColor !== currentChipColor && me?.chips?.[chipColor] != null);
+  const myEmote = emotes.filter((e) => ((e.fromId === myId || e.targetPlayerId === myId) && (e.expiresAt ?? 0) > now)).at(-1) ?? null;
   const tradeTimeLeftMs = room.tradeOffer && room.tradeOffer.expiresAt ? Math.max(0, room.tradeOffer.expiresAt - now) : 0;
+  const getEmoteForPlayer = (playerId) => emotes.filter((e) => ((e.fromId === playerId || e.targetPlayerId === playerId) && (e.expiresAt ?? 0) > now)).at(-1) ?? null;
 
   const submitChallengeVote = (confirm = false) => {
     if (!guessPhase || myId === guessPhase.targetPlayerId || challengeLocked) return;
@@ -247,7 +249,7 @@ export default function GameTable() {
                   onChipClick={() => handlePlayerChipClick(p)}
                   onEmote={() => setEmoteTarget(p.id)}
                   onTrade={() => setTradeTarget(p.id)}
-                  emote={emotes.filter((e) => (e.targetPlayerId === p.id || e.fromId === p.id) && (e.expiresAt ?? 0) > now).at(-1) ?? null}
+                  emote={getEmoteForPlayer(p.id)}
                   showCards={gameState === 'SHOWDOWN' && p.cards}
                   roundSelections={room.roundSelections}
                   roundConfirmed={room.roundConfirmed}
@@ -267,7 +269,7 @@ export default function GameTable() {
                   <Card
                     key={i}
                     card={communityCards[i]}
-                    faceDown={!communityCards[i]}
+                    faceDown={!communityCards[i] || !!communityCards[i]?.hidden}
                     size="md"
                   />
                 ))}
@@ -478,8 +480,15 @@ export default function GameTable() {
                   <Card key={i} card={c} size="lg" />
                 ))}
               </div>
-              <div className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-black/20 px-2 py-2 shadow-[0_8px_18px_rgba(0,0,0,0.15)]">
-                <span className="text-sm font-medium text-gold">{me?.name} (bạn)</span>
+              <div className="flex flex-col items-center gap-1 rounded-2xl border border-white/10 bg-black/20 px-2 py-2 shadow-[0_8px_18px_rgba(0,0,0,0.15)] relative">
+                <div className="relative flex flex-col items-center">
+                  <span className="text-sm font-medium text-gold">{me?.name} (bạn)</span>
+                  {myEmote && (
+                    <div className="pointer-events-none absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-gold/40 bg-black/80 px-2 py-0.5 text-[10px] text-gold shadow-lg animate-pulse">
+                      {myEmote.text}
+                    </div>
+                  )}
+                </div>
                 {currentSelfChip != null && (
                   <Chip
                     value={currentSelfChip}
@@ -521,6 +530,7 @@ export default function GameTable() {
                     <Card
                       key={`${card.rank}-${card.suit}-${index}`}
                       card={card}
+                      faceDown={!!card?.hidden}
                       size="sm"
                       highlight={myHighlightKeys.includes(`${card.rank}-${card.suit}`)}
                     />
@@ -563,12 +573,13 @@ export default function GameTable() {
                     <span className="text-white/80">#{entry.placement} {entry.name}</span>
                     <span className="text-gold">{entry.hand?.name || 'Unknown'}</span>
                   </div>
-                  {entry.hand?.combo?.length > 0 && (
+                  {(entry.hand?.combo || []).length > 0 && (
                     <div className="flex gap-1.5">
-                      {entry.hand.combo.map((card, idx) => (
+                      {(entry.hand.combo || []).map((card, idx) => (
                         <Card
                           key={`${entry.id}-${idx}-${card.rank}-${card.suit}`}
                           card={card}
+                          faceDown={!!card?.hidden}
                           size="sm"
                           highlight={highlightKeys.includes(`${card.rank}-${card.suit}`)}
                         />

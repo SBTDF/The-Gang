@@ -65,13 +65,14 @@ function evaluate5(cards) {
       rank: isRoyal ? 9 : 8,
       name: isRoyal ? 'Royal Flush' : 'Straight Flush',
       tiebreak: [straightHigh],
+      combo: cards,
     };
   }
 
   if (groups[0].count === 4) {
     const quad = groups[0].value;
     const kicker = groups[1].value;
-    return { rank: 7, name: 'Four of a Kind', tiebreak: [quad, kicker] };
+    return { rank: 7, name: 'Four of a Kind', tiebreak: [quad, kicker], combo: cards };
   }
 
   if (groups[0].count === 3 && groups[1]?.count === 2) {
@@ -79,43 +80,44 @@ function evaluate5(cards) {
       rank: 6,
       name: 'Full House',
       tiebreak: [groups[0].value, groups[1].value],
+      combo: cards,
     };
   }
 
   if (isFlush) {
-    return { rank: 5, name: 'Flush', tiebreak: values };
+    return { rank: 5, name: 'Flush', tiebreak: values, combo: cards };
   }
 
   if (isStraight) {
-    return { rank: 4, name: 'Straight', tiebreak: [straightHigh] };
+    return { rank: 4, name: 'Straight', tiebreak: [straightHigh], combo: cards };
   }
 
   if (groups[0].count === 3) {
     const trips = groups[0].value;
     const rest = groups.slice(1).flatMap((g) => Array(g.count).fill(g.value));
-    return { rank: 3, name: 'Three of a Kind', tiebreak: [trips, ...rest] };
+    return { rank: 3, name: 'Three of a Kind', tiebreak: [trips, ...rest], combo: cards };
   }
 
   if (groups[0].count === 2 && groups[1]?.count === 2) {
     const highPair = Math.max(groups[0].value, groups[1].value);
     const lowPair = Math.min(groups[0].value, groups[1].value);
     const kicker = groups[2]?.value ?? 0;
-    return { rank: 2, name: 'Two Pair', tiebreak: [highPair, lowPair, kicker] };
+    return { rank: 2, name: 'Two Pair', tiebreak: [highPair, lowPair, kicker], combo: cards };
   }
 
   if (groups[0].count === 2) {
     const pair = groups[0].value;
     const rest = groups.slice(1).flatMap((g) => Array(g.count).fill(g.value));
-    return { rank: 1, name: 'Pair', tiebreak: [pair, ...rest] };
+    return { rank: 1, name: 'Pair', tiebreak: [pair, ...rest], combo: cards };
   }
 
-  return { rank: 0, name: 'High Card', tiebreak: values };
+  return { rank: 0, name: 'High Card', tiebreak: values, combo: cards };
 }
 
 export function evaluateBestHand(pocketCards, communityCards) {
   const all = [...pocketCards, ...communityCards];
   if (all.length < 5) {
-    return { rank: -1, name: 'Incomplete', tiebreak: [] };
+    return { rank: -1, name: 'Incomplete', tiebreak: [], combo: all.slice(0, 5) };
   }
 
   let best = null;
@@ -125,7 +127,7 @@ export function evaluateBestHand(pocketCards, communityCards) {
       best = result;
     }
   }
-  return best;
+  return best ?? { rank: -1, name: 'Incomplete', tiebreak: [], combo: all.slice(0, 5) };
 }
 
 export function compareHands(a, b) {
