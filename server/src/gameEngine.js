@@ -1,6 +1,16 @@
 import { createDeck, shuffleDeck } from './deck.js';
 import { evaluateBestHand, compareHands } from './handEvaluator.js';
 import { shouldLockChip, hasChallenge } from './challenges.js';
+import {
+  GAME_MODES,
+  createChallengeProgress,
+  incrementChallengeProgress,
+  IMPOSTER_ADVICE_DEFS,
+  isImposterMode,
+  isSupportedGameMode,
+  randomItem,
+  resetChallengeUses,
+} from './imposterMode.js';
 
 export const PHASES = {
   LOBBY: 'LOBBY',
@@ -22,6 +32,11 @@ const CHIP_COLORS = {
 };
 
 const PHASE_ORDER = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER'];
+const IMPOSTER_ACTION_PHASES = new Set(PHASE_ORDER);
+
+function canUseImposterAction(room) {
+  return isImposterMode(room) && IMPOSTER_ACTION_PHASES.has(room.gameState);
+}
 
 export function generateRoomCode(rooms) {
   const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -37,11 +52,13 @@ export function createRoom(hostId, playerName, maxPlayers = 6) {
     code: null,
     hostId,
     maxPlayers,
+    gameMode: GAME_MODES.CLASSIC,
     players: [
       {
         id: hostId,
         name: playerName,
         cards: [],
+        publicShowdownCards: [],
         chips: {},
         connected: true,
       },
@@ -65,7 +82,32 @@ export function createRoom(hostId, playerName, maxPlayers = 6) {
     gameLog: [],
     guessPhase: null,
     hiddenCommunityCardIndex: null,
+    imposterPlayerId: null,
+    challengeProgress: {},
+    publicSabotageHistory: [],
+    privateChallengeData: {},
   };
+}
+
+export function setGameMode(room, gameMode) {
+  if (room.gameState !== PHASES.LOBBY) {
+    return { error: 'Game mode can only be changed in the lobby' };
+  }
+  if (!isSupportedGameMode(gameMode)) {
+    return { error: 'Game mode is invalid' };
+  }
+
+  room.gameMode = gameMode;
+  room.challenges = [];
+  room.imposterPlayerId = null;
+  room.challengeProgress = {};
+  room.publicSabotageHistory = [];
+  room.privateChallengeData = {};
+  delete room.revealedImposterId;
+  for (const player of room.players) {
+    player.publicShowdownCards = [];
+  }
+  return { ok: true };
 }
 
 function getChipColor(phase) {
@@ -94,6 +136,7 @@ function dealPocketCards(room) {
   const cardCount = hasChallenge(room, 'securityCamera') ? 3 : 2;
   for (const player of room.players) {
     player.cards = room.deck.splice(0, cardCount);
+    player.publicShowdownCards = [];
     player.chips = {};
   }
   room.communityCards = [];
@@ -164,6 +207,18 @@ export function startGame(room) {
   if (room.players.length < 3) return { error: 'Cần ít nhất 3 người chơi' };
   if (room.gameState !== PHASES.LOBBY) return { error: 'Game đã bắt đầu' };
 
+  if (room.gameMode === GAME_MODES.IMPOSTER) {
+    const imposter = randomItem(room.players);
+    room.imposterPlayerId = imposter?.id ?? null;
+    room.challengeProgress = createChallengeProgress(room.challenges);
+    room.publicSabotageHistory = [];
+  } else {
+    room.imposterPlayerId = null;
+    room.challengeProgress = {};
+    room.publicSabotageHistory = [];
+    room.privateChallengeData = {};
+  }
+
   dealPocketCards(room);
   room.guessPhase = null;
 
@@ -175,6 +230,7 @@ export function startGame(room) {
   }
 
   initChipPool(room);
+  preparePrivateChallengeData(room);
   addLog(room, `Heist #${room.heistNumber} bắt đầu!`);
   logActiveChallenges(room);
   return { ok: true };
@@ -236,6 +292,381 @@ function needsPreShowdownGuess(room) {
   );
 }
 
+export function getCrewPlayers(room) {
+  if (!isImposterMode(room)) return room.players;
+  return room.players.filter((player) => player.id !== room.imposterPlayerId);
+}
+
+export function getCrewHandOrder(room) {
+  return [...getCrewPlayers(room)].sort((a, b) => {
+    const handDifference = compareHands(
+      evaluateBestHand(a.cards, room.communityCards),
+      evaluateBestHand(b.cards, room.communityCards),
+    );
+    return handDifference || String(a.id).localeCompare(String(b.id));
+  });
+}
+
+export function getIdealChipAssignment(room) {
+  const orderedCrew = getCrewHandOrder(room);
+  const assignment = {};
+
+  orderedCrew.forEach((player, index) => {
+    assignment[player.id] = index + 1;
+  });
+
+  if (isImposterMode(room) && room.imposterPlayerId) {
+    assignment[room.imposterPlayerId] = room.players.length;
+  }
+
+  return assignment;
+}
+
+function getAssignmentEntries(room) {
+  const assignment = getIdealChipAssignment(room);
+  return room.players.map((player) => ({
+    playerId: player.id,
+    playerName: player.name,
+    chipValue: assignment[player.id] ?? null,
+  }));
+}
+
+function getTruthfulPlacementClue(room) {
+  const orderedCrew = getCrewHandOrder(room);
+  const strongerPairs = [];
+
+  for (let weakerIndex = 0; weakerIndex < orderedCrew.length; weakerIndex += 1) {
+    for (let strongerIndex = weakerIndex + 1; strongerIndex < orderedCrew.length; strongerIndex += 1) {
+      const weaker = orderedCrew[weakerIndex];
+      const stronger = orderedCrew[strongerIndex];
+      const weakerHand = evaluateBestHand(weaker.cards, room.communityCards);
+      const strongerHand = evaluateBestHand(stronger.cards, room.communityCards);
+      if (compareHands(strongerHand, weakerHand) > 0) {
+        strongerPairs.push({ stronger, weaker });
+      }
+    }
+  }
+
+  const pair = randomItem(strongerPairs);
+  if (pair) {
+    return {
+      type: 'RELATIONSHIP',
+      strongerPlayerId: pair.stronger.id,
+      strongerPlayerName: pair.stronger.name,
+      weakerPlayerId: pair.weaker.id,
+      weakerPlayerName: pair.weaker.name,
+      text: `${pair.stronger.name} should rank above ${pair.weaker.name}.`,
+    };
+  }
+
+  if (orderedCrew.length >= 2) {
+    const first = orderedCrew[0];
+    const second = orderedCrew[1];
+    return {
+      type: 'TIED_PLACEMENT',
+      firstPlayerId: first.id,
+      firstPlayerName: first.name,
+      secondPlayerId: second.id,
+      secondPlayerName: second.name,
+      text: `${first.name} and ${second.name} are tied; neither should be ranked above the other.`,
+    };
+  }
+
+  const strongest = orderedCrew[orderedCrew.length - 1];
+  const topCount = Math.min(2, Math.max(1, orderedCrew.length));
+  return {
+    type: 'TOP_PLACEMENT',
+    playerId: strongest?.id ?? null,
+    playerName: strongest?.name ?? 'A player',
+    topCount,
+    text: `${strongest?.name ?? 'A player'} belongs in the top ${topCount}.`,
+  };
+}
+
+function buildAllHands(room) {
+  return getCrewPlayers(room).map((player) => ({
+    playerId: player.id,
+    playerName: player.name,
+    cards: player.cards,
+  }));
+}
+
+export function preparePrivateChallengeData(room) {
+  room.privateChallengeData = {};
+  if (!isImposterMode(room) || !room.imposterPlayerId) return;
+
+  for (const player of room.players) {
+    room.privateChallengeData[player.id] = {
+      openBook: null,
+      blueprint: null,
+      falseTrail: null,
+      targetOptions: [],
+    };
+  }
+
+  const imposterData = room.privateChallengeData[room.imposterPlayerId];
+  const imposterProgress = room.challengeProgress?.openBook;
+  if (imposterProgress?.imposterLevel === 2 && hasChallenge(room, 'openBook')) {
+    imposterData.openBook = {
+      level: 2,
+      hands: buildAllHands(room),
+    };
+  }
+
+  const imposterBlueprint = room.challengeProgress?.blueprint;
+  if (imposterBlueprint?.imposterLevel === 2 && hasChallenge(room, 'blueprint')) {
+    imposterData.blueprint = {
+      level: 2,
+      ranking: getCrewHandOrder(room).map((player, index) => ({
+        playerId: player.id,
+        playerName: player.name,
+        position: index + 1,
+      })),
+      assignment: getAssignmentEntries(room),
+    };
+  }
+
+  const falseTrailProgress = room.challengeProgress?.falseTrail;
+  if (falseTrailProgress?.imposterLevel > 0 && hasChallenge(room, 'falseTrail')) {
+    imposterData.falseTrail = {
+      level: falseTrailProgress.imposterLevel,
+      used: falseTrailProgress.adviceUsed,
+      maxUses: falseTrailProgress.imposterLevel,
+    };
+  }
+
+  for (const crewPlayer of getCrewPlayers(room)) {
+    const crewData = room.privateChallengeData[crewPlayer.id];
+    const blueprintProgress = room.challengeProgress?.blueprint;
+    if (blueprintProgress?.crewLevel === 1 && hasChallenge(room, 'blueprint')) {
+      crewData.blueprint = {
+        level: 1,
+        clue: getTruthfulPlacementClue(room),
+      };
+    } else if (blueprintProgress?.crewLevel === 2 && hasChallenge(room, 'blueprint')) {
+      crewData.blueprint = {
+        level: 2,
+        assignment: getAssignmentEntries(room),
+      };
+    }
+  }
+
+  const targetOptions = getCrewPlayers(room).map((player) => ({
+    playerId: player.id,
+    playerName: player.name,
+  }));
+  if (imposterProgress?.imposterLevel === 1 && hasChallenge(room, 'openBook')) {
+    imposterData.targetOptions.push({ challengeId: 'openBook', players: targetOptions });
+  }
+  if (imposterBlueprint?.imposterLevel === 1 && hasChallenge(room, 'blueprint')) {
+    imposterData.targetOptions.push({ challengeId: 'blueprint', players: targetOptions });
+  }
+}
+
+export function getPrivateChallengeData(room, playerId) {
+  return room.privateChallengeData?.[playerId] || {
+    openBook: null,
+    blueprint: null,
+    falseTrail: null,
+    targetOptions: [],
+  };
+}
+
+export function getPlayerRole(room, playerId) {
+  if (!isImposterMode(room) || room.gameState === PHASES.LOBBY) return null;
+  return playerId === room.imposterPlayerId ? 'IMPOSTER' : 'CREW';
+}
+
+export function selectImposterTarget(room, playerId, challengeId, targetPlayerId) {
+  if (!isImposterMode(room) || playerId !== room.imposterPlayerId) {
+    return { error: 'Only the Imposter can select Intel targets' };
+  }
+  if (!canUseImposterAction(room)) {
+    return { error: 'Intel target selection is unavailable in this phase' };
+  }
+
+  const progress = room.challengeProgress?.[challengeId];
+  if (!progress || progress.imposterLevel !== 1) {
+    return { error: 'This Intel target is not available' };
+  }
+  if (!['openBook', 'blueprint'].includes(challengeId) || !hasChallenge(room, challengeId)) {
+    return { error: 'This Intel target is invalid' };
+  }
+
+  const target = getCrewPlayers(room).find((player) => player.id === targetPlayerId);
+  if (!target) return { error: 'Intel target must be a Crew player' };
+
+  const data = room.privateChallengeData[playerId];
+  if (!data) return { error: 'Private Intel is not ready' };
+
+  const existingSelection = challengeId === 'openBook' ? data.openBook : data.blueprint;
+  if (existingSelection) {
+    return { error: 'This Intel target has already been selected' };
+  }
+
+  if (challengeId === 'openBook') {
+    data.openBook = {
+      level: 1,
+      target: {
+        playerId: target.id,
+        playerName: target.name,
+        cards: target.cards,
+      },
+    };
+  } else {
+    const assignment = getIdealChipAssignment(room);
+    const targetPosition = getCrewHandOrder(room).findIndex((player) => player.id === target.id) + 1;
+    data.blueprint = {
+      level: 1,
+      target: {
+        playerId: target.id,
+        playerName: target.name,
+        position: targetPosition,
+        idealChipValue: assignment[target.id] ?? null,
+      },
+    };
+  }
+
+  data.targetOptions = data.targetOptions.filter((entry) => entry.challengeId !== challengeId);
+  return { ok: true, data: getPrivateChallengeData(room, playerId) };
+}
+
+export function submitImposterAdvice(room, playerId, targetPlayerId, adviceId) {
+  if (!isImposterMode(room) || playerId !== room.imposterPlayerId) {
+    return { error: 'Only the Imposter can send False Trail advice' };
+  }
+  if (!canUseImposterAction(room)) {
+    return { error: 'False Trail advice is unavailable in this phase' };
+  }
+  if (!hasChallenge(room, 'falseTrail')) {
+    return { error: 'False Trail is not active' };
+  }
+
+  const progress = room.challengeProgress?.falseTrail;
+  const advice = IMPOSTER_ADVICE_DEFS.find((item) => item.id === adviceId);
+  const target = getCrewPlayers(room).find((player) => player.id === targetPlayerId);
+  const maxUses = Math.max(0, progress?.imposterLevel || 0);
+  const decisionKey = `${room.heistNumber}:${room.gameState}:${room.currentChipColor || 'none'}`;
+
+  if (!progress || !advice || !target) {
+    return { error: 'False Trail advice is invalid' };
+  }
+  if (progress.adviceUsed >= maxUses) {
+    return { error: 'No False Trail advice remains' };
+  }
+  if (progress.adviceDecisionKeys.includes(decisionKey)) {
+    return { error: 'False Trail advice must target separate decisions' };
+  }
+
+  progress.adviceUsed += 1;
+  progress.adviceDecisionKeys.push(decisionKey);
+  const privateData = room.privateChallengeData?.[playerId];
+  if (privateData?.falseTrail) {
+    privateData.falseTrail.used = progress.adviceUsed;
+  }
+  const publicClue = progress.crewLevel >= 2
+    ? {
+      category: 'communication',
+      affectedPhase: room.gameState,
+      decisionType: room.currentChipColor || 'showdown',
+    }
+    : progress.crewLevel === 1
+      ? { category: 'communication' }
+      : null;
+
+  room.publicSabotageHistory.push({
+    time: Date.now(),
+    category: 'communication',
+  });
+
+  return {
+    ok: true,
+    targetId: target.id,
+    advice: {
+      id: advice.id,
+      label: advice.label,
+      fromName: room.players.find((player) => player.id === playerId)?.name || 'Player',
+    },
+    publicClue,
+  };
+}
+
+export function getCrewRankingSuccess(room) {
+  const orderedCrew = [...getCrewPlayers(room)].sort((a, b) => {
+    const chipA = a.chips.red ?? Number.POSITIVE_INFINITY;
+    const chipB = b.chips.red ?? Number.POSITIVE_INFINITY;
+    return chipA - chipB || String(a.id).localeCompare(String(b.id));
+  });
+
+  for (let index = 1; index < orderedCrew.length; index += 1) {
+    const previous = evaluateBestHand(orderedCrew[index - 1].cards, room.communityCards);
+    const current = evaluateBestHand(orderedCrew[index].cards, room.communityCards);
+    if (compareHands(current, previous) < 0) return false;
+  }
+
+  return true;
+}
+
+function cardKey(card) {
+  return `${card.rank}_${card.suit}`;
+}
+
+function combinations(cards, count) {
+  if (count === 0) return [[]];
+  if (cards.length < count) return [];
+
+  const [first, ...rest] = cards;
+  const withFirst = combinations(rest, count - 1).map((combo) => [first, ...combo]);
+  const withoutFirst = combinations(rest, count);
+  return [...withFirst, ...withoutFirst];
+}
+
+function canPlaceHand(hand, previousHand, nextHand) {
+  if (previousHand && compareHands(hand, previousHand) < 0) return false;
+  if (nextHand && compareHands(nextHand, hand) < 0) return false;
+  return true;
+}
+
+function generatePublicShowdownHand(room) {
+  const imposter = room.players.find((player) => player.id === room.imposterPlayerId);
+  if (!imposter) return;
+
+  const visibleCards = [
+    ...room.communityCards,
+    ...room.players.flatMap((player) => player.cards || []),
+  ];
+  const usedKeys = new Set(visibleCards.map(cardKey));
+  const candidateCards = createDeck().filter((card) => !usedKeys.has(cardKey(card)));
+  const cardCount = imposter.cards.length;
+  const orderedPlayers = [...room.players].sort((a, b) => {
+    const chipA = a.chips.red ?? Number.POSITIVE_INFINITY;
+    const chipB = b.chips.red ?? Number.POSITIVE_INFINITY;
+    return chipA - chipB || String(a.id).localeCompare(String(b.id));
+  });
+  const imposterIndex = orderedPlayers.findIndex((player) => player.id === imposter.id);
+  const previousCrew = orderedPlayers
+    .slice(0, imposterIndex)
+    .reverse()
+    .find((player) => player.id !== imposter.id);
+  const nextCrew = orderedPlayers
+    .slice(imposterIndex + 1)
+    .find((player) => player.id !== imposter.id);
+  const previousHand = previousCrew
+    ? evaluateBestHand(previousCrew.cards, room.communityCards)
+    : null;
+  const nextHand = nextCrew
+    ? evaluateBestHand(nextCrew.cards, room.communityCards)
+    : null;
+
+  const validCandidates = combinations(candidateCards, cardCount).filter((cards) => {
+    const hand = evaluateBestHand(cards, room.communityCards);
+    return canPlaceHand(hand, previousHand, nextHand);
+  });
+
+  const fallbackCandidates = combinations(candidateCards, cardCount);
+  imposter.publicShowdownCards = randomItem(validCandidates) || randomItem(fallbackCandidates) || [];
+}
+
 export const CARD_RANK_OPTIONS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 export const HAND_RANK_OPTIONS = [
   'High Card',
@@ -251,6 +682,10 @@ export const HAND_RANK_OPTIONS = [
 ];
 
 function startShowdown(room) {
+  if (isImposterMode(room)) {
+    generatePublicShowdownHand(room);
+  }
+
   const redChips = room.players
     .map((p) => ({ id: p.id, chip: p.chips.red ?? 999 }))
     .sort((a, b) => a.chip - b.chip);
@@ -327,7 +762,7 @@ function resolveGuessPhase(room, reason = 'finalized') {
   return { ok: true, guessConfirmed: true, reason };
 }
 
-export function getShowdownStep(room) {
+export function getShowdownStep(room, viewerId = null) {
   if (room.gameState === PHASES.SHOWDOWN_GUESS) {
     return { needsGuess: true, guessPhase: sanitizeGuessPhase(room, room.lastViewerId) };
   }
@@ -339,13 +774,18 @@ export function getShowdownStep(room) {
 
   const playerId = room.showdownOrder[room.showdownIndex];
   const player = room.players.find((p) => p.id === playerId);
-  const hand = evaluateBestHand(player.cards, room.communityCards);
+  const cards = isImposterMode(room)
+    && player.id === room.imposterPlayerId
+    && viewerId !== room.imposterPlayerId
+    ? player.publicShowdownCards
+    : player.cards;
+  const hand = evaluateBestHand(cards, room.communityCards);
   const isLast = room.showdownIndex === room.showdownOrder.length - 1;
 
   return {
     playerId,
     playerName: player.name,
-    cards: player.cards,
+    cards,
     hand,
     index: room.showdownIndex,
     total: room.showdownOrder.length,
@@ -478,6 +918,7 @@ export function submitGuess(room, playerId, { cardRank, handRank, confirm = fals
 }
 
 export function processShowdownStep(room) {
+  const imposterMode = isImposterMode(room);
   const isLastStep = room.showdownIndex === room.showdownOrder.length - 1;
 
   if (
@@ -520,7 +961,7 @@ export function processShowdownStep(room) {
   }
 
   let valid = true;
-  if (room.showdownIndex > 0) {
+  if (!imposterMode && room.showdownIndex > 0) {
     const prevId = room.showdownOrder[room.showdownIndex - 1];
     const prevPlayer = room.players.find((p) => p.id === prevId);
     const prevHand = evaluateBestHand(prevPlayer.cards, room.communityCards);
@@ -531,6 +972,10 @@ export function processShowdownStep(room) {
 
   room.showdownIndex++;
   const isLast = room.showdownIndex >= room.showdownOrder.length;
+
+  if (imposterMode && isLast) {
+    valid = getCrewRankingSuccess(room);
+  }
 
   if (isLast && !valid) return finishShowdown(room, false);
   if (isLast && valid) return finishShowdown(room, true);
@@ -544,7 +989,9 @@ export function buildLeaderboard(room) {
     id: p.id,
     name: p.name,
     chipValue: p.chips.red ?? null,
-    hand: evaluateBestHand(p.cards, room.communityCards),
+    hand: isImposterMode(room) && p.id === room.imposterPlayerId
+      ? evaluateBestHand(p.publicShowdownCards || [], room.communityCards)
+      : evaluateBestHand(p.cards, room.communityCards),
   }));
 
   const handOrder = [...entries].sort((a, b) => {
@@ -608,6 +1055,8 @@ function finishShowdown(room, success) {
     addLog(room, `Heist #${room.heistNumber} THẤT BẠI! (${room.alarms}/3)`);
   }
 
+  incrementChallengeProgress(room, success);
+
   if (room.vault >= 3) {
     room.gameState = PHASES.GAME_OVER;
     return { ok: true, gameOver: true, result: 'WIN' };
@@ -634,6 +1083,8 @@ export function startNextHeist(room) {
   }
 
   initChipPool(room);
+  resetChallengeUses(room);
+  preparePrivateChallengeData(room);
   room.showdownOrder = [];
   room.showdownIndex = 0;
   addLog(room, `Heist #${room.heistNumber} bắt đầu!`);
@@ -647,6 +1098,7 @@ export function returnToLobby(room) {
 
   for (const player of room.players) {
     player.cards = [];
+    player.publicShowdownCards = [];
     player.chips = {};
   }
 
@@ -669,6 +1121,10 @@ export function returnToLobby(room) {
   room.alarms = 0;
   room.heistNumber = 1;
   room.gameLog = [];
+  room.imposterPlayerId = null;
+  room.challengeProgress = {};
+  room.publicSabotageHistory = [];
+  room.privateChallengeData = {};
 
   return { ok: true };
 }
@@ -861,6 +1317,8 @@ export function sanitizeRoomForClient(room, viewerId) {
   return {
     code: room.code,
     hostId: room.hostId,
+    gameMode: room.gameMode,
+    revealedImposterId: room.gameState === PHASES.GAME_OVER ? room.imposterPlayerId : null,
     gameState: room.gameState,
     communityCards: room.communityCards,
     vault: room.vault,
@@ -876,6 +1334,7 @@ export function sanitizeRoomForClient(room, viewerId) {
     showdownOrder: room.showdownOrder,
     guessPhase: guessSanitized,
     leaderboard: room.leaderboard || [],
+    publicSabotageHistory: room.publicSabotageHistory || [],
     roundSelections: room.roundSelections || {},
     roundConfirmed: room.roundConfirmed || {},
     tradeOffer: room.tradeOffer && room.tradeOffer.expiresAt > Date.now() ? {
@@ -907,14 +1366,19 @@ function filterVisibleChips(chips, room) {
 }
 
 function getVisibleCards(room, player, viewerId) {
+  const isPublicImposterHand = isImposterMode(room)
+    && player.id === room.imposterPlayerId
+    && player.id !== viewerId
+    && [PHASES.SHOWDOWN, PHASES.GAME_OVER].includes(room.gameState);
+
   if (
     room.gameState === PHASES.SHOWDOWN &&
     room.showdownOrder.slice(0, room.showdownIndex).includes(player.id)
   ) {
-    return player.cards;
+    return isPublicImposterHand ? player.publicShowdownCards : player.cards;
   }
   if (player.id === viewerId || room.gameState === PHASES.GAME_OVER) {
-    return player.cards;
+    return isPublicImposterHand ? player.publicShowdownCards : player.cards;
   }
   return null;
 }

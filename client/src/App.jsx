@@ -7,7 +7,21 @@ import GameTable from './components/GameTable';
 import ErrorToast from './components/ErrorToast';
 
 export default function App() {
-  const { screen, setMyId, setRoom, setMyCards, setError, setShowdownStep, setGameOver, setHeistResult, addEmote } =
+  const {
+    screen,
+    setMyId,
+    setRoom,
+    setMyCards,
+    setMyRole,
+    setPrivateChallengeState,
+    setFalseTrailAdvice,
+    setSabotageClue,
+    setError,
+    setShowdownStep,
+    setGameOver,
+    setHeistResult,
+    addEmote,
+  } =
     useGameStore();
 
   useEffect(() => {
@@ -26,7 +40,16 @@ export default function App() {
     socket.on('ROOM_STATE', (room) => {
       setRoom(room);
       if (room.gameState === 'LOBBY') {
-        useGameStore.setState({ screen: 'lobby', gameOver: null, heistResult: null, showdownStep: null });
+        useGameStore.setState({
+          screen: 'lobby',
+          gameOver: null,
+          heistResult: null,
+          showdownStep: null,
+          myRole: null,
+          privateChallengeState: null,
+          falseTrailAdvice: null,
+          sabotageClue: null,
+        });
       } else {
         useGameStore.setState({ screen: 'game' });
       }
@@ -36,6 +59,9 @@ export default function App() {
       if (room.gameState === 'GAME_OVER') {
         setGameOver({
           result: room.vault >= 3 ? 'WIN' : 'LOSE',
+          winner: room.gameMode === 'IMPOSTER' ? (room.vault >= 3 ? 'CREW' : 'IMPOSTER') : null,
+          gameMode: room.gameMode,
+          imposterPlayerId: room.revealedImposterId || null,
           vault: room.vault,
           alarms: room.alarms,
         });
@@ -44,6 +70,17 @@ export default function App() {
     });
 
     socket.on('YOUR_CARDS', ({ cards }) => setMyCards(cards));
+
+    socket.on('YOUR_ROLE', ({ gameMode, role }) => {
+      useGameStore.setState({ myRole: role, privateChallengeState: null });
+      if (gameMode !== 'IMPOSTER') setMyRole(null);
+    });
+
+    socket.on('PRIVATE_CHALLENGE_STATE', (state) => setPrivateChallengeState(state));
+
+    socket.on('FALSE_TRAIL_ADVICE', (advice) => setFalseTrailAdvice(advice));
+
+    socket.on('SABOTAGE_RESOLVED', ({ clue }) => setSabotageClue(clue || null));
 
     socket.on('ERROR', ({ message }) => setError(message));
 
@@ -64,6 +101,10 @@ export default function App() {
       socket.off('ROOM_JOINED');
       socket.off('ROOM_STATE');
       socket.off('YOUR_CARDS');
+      socket.off('YOUR_ROLE');
+      socket.off('PRIVATE_CHALLENGE_STATE');
+      socket.off('FALSE_TRAIL_ADVICE');
+      socket.off('SABOTAGE_RESOLVED');
       socket.off('ERROR');
       socket.off('SHOWDOWN_STEP');
       socket.off('HEIST_RESULT');

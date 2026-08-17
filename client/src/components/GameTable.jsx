@@ -10,6 +10,7 @@ import GameLog from './GameLog';
 import EmoteMenu from './EmoteMenu';
 import RulesModal from './RulesModal';
 import HandRankingsModal from './HandRankingsModal';
+import ImposterPanel from './ImposterPanel';
 
 const PHASE_HINTS = {
   PRE_FLOP: 'Chọn chip trắng — số càng cao = bài càng mạnh',
@@ -32,6 +33,10 @@ export default function GameTable() {
     selectedChip,
     setSelectedChip,
     emotes,
+    myRole,
+    privateChallengeState,
+    falseTrailAdvice,
+    sabotageClue,
   } = useGameStore();
 
   const [showRules, setShowRules] = useState(false);
@@ -195,11 +200,14 @@ export default function GameTable() {
   };
 
   const handleNextHeist = () => {
-    useGameStore.setState({ heistResult: null, showdownStep: null });
+    useGameStore.setState({ heistResult: null, showdownStep: null, falseTrailAdvice: null, sabotageClue: null });
     socket.emit('NEXT_HEIST');
   };
 
   if (gameOver) {
+    const revealedImposter = gameOver.imposterPlayerId
+      ? players.find((player) => player.id === gameOver.imposterPlayerId)
+      : null;
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
         <h2 className="font-display text-4xl sm:text-5xl font-bold mb-4">
@@ -212,6 +220,11 @@ export default function GameTable() {
         <p className="text-white/60 mb-2">
           Vault: {gameOver.vault}/3 — Alarm: {gameOver.alarms}/3
         </p>
+        {gameOver.gameMode === 'IMPOSTER' && revealedImposter && (
+          <p className="text-red-200/80">
+            The Imposter was <span className="font-semibold text-red-200">{revealedImposter.name}</span>.
+          </p>
+        )}
         <button type="button" onClick={handleReturnToLobby} disabled={!isHost} className="btn-primary mt-6">
           Return to lobby
         </button>
@@ -247,6 +260,15 @@ export default function GameTable() {
           </button>
         </div>
       </div>
+
+      <ImposterPanel
+        room={room}
+        myId={myId}
+        myRole={myRole}
+        privateChallengeState={privateChallengeState}
+        falseTrailAdvice={falseTrailAdvice}
+        sabotageClue={sabotageClue}
+      />
 
       {/* Main game area */}
       <div className="flex flex-col gap-3 pb-2 lg:flex-row lg:flex-1 lg:min-h-0">

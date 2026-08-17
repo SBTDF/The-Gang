@@ -7,6 +7,9 @@ import { fileURLToPath } from 'url';
 import {
   createRoom,
   generateRoomCode,
+  getPlayerRole,
+  getCrewPlayers,
+  getPrivateChallengeData,
   startGame,
   advancePhase,
   selectChip,
@@ -21,8 +24,16 @@ import {
   startNextHeist,
   returnToLobby,
   submitGuess,
+  selectImposterTarget,
+  setGameMode,
+  submitImposterAdvice,
   PHASES,
 } from './src/gameEngine.js';
+import { CHALLENGE_DEFS } from './src/challenges.js';
+import {
+  GAME_MODES,
+  IMPOSTER_CHALLENGE_DEFS,
+} from './src/imposterMode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -62,6 +73,25 @@ function sendPrivateCards(code, playerId) {
   if (!room) return;
   const cards = getPlayerCards(room, playerId);
   io.to(playerId).emit('YOUR_CARDS', { cards });
+}
+
+function sendPrivateModeState(code) {
+  const room = rooms[code];
+  if (!room || room.gameState === PHASES.LOBBY) return;
+
+  for (const player of room.players) {
+    io.to(player.id).emit('YOUR_ROLE', {
+      gameMode: room.gameMode,
+      role: getPlayerRole(room, player.id),
+    });
+    io.to(player.id).emit('PRIVATE_CHALLENGE_STATE', getPrivateChallengeData(room, player.id));
+  }
+}
+
+function sendShowdownStep(code, room) {
+  for (const player of room.players) {
+    io.to(player.id).emit('SHOWDOWN_STEP', getShowdownStep(room, player.id));
+  }
 }
 
 const EMOTES = {
@@ -108,6 +138,7 @@ io.on('connection', (socket) => {
       id: socket.id,
       name: playerName,
       cards: [],
+      publicShowdownCards: [],
       chips: {},
       connected: true,
     });
@@ -131,6 +162,7 @@ io.on('connection', (socket) => {
     }
     broadcastRoom(code);
     for (const p of room.players) sendPrivateCards(code, p.id);
+    sendPrivateModeState(code);
   });
 
   socket.on('SELECT_CHIP', ({ chipValue, targetPlayerId }) => {
@@ -175,8 +207,7 @@ io.on('connection', (socket) => {
       const adv = advancePhase(room);
       if (adv.showdown) {
         broadcastRoom(code);
-        const step = getShowdownStep(room);
-        io.to(code).emit('SHOWDOWN_STEP', step);
+        sendShowdownStep(code, room);
       } else if (adv.ok) {
         broadcastRoom(code);
         for (const p of room.players) sendPrivateCards(code, p.id);
@@ -220,6 +251,11 @@ io.on('connection', (socket) => {
     if (result.gameOver) {
       io.to(code).emit('GAME_OVER', {
         result: result.result,
+        winner: room.gameMode === GAME_MODES.IMPOSTER
+          ? (result.result === 'WIN' ? 'CREW' : 'IMPOSTER')
+          : null,
+        gameMode: room.gameMode,
+        imposterPlayerId: room.gameMode === GAME_MODES.IMPOSTER ? room.imposterPlayerId : null,
         vault: room.vault,
         alarms: room.alarms,
       });
@@ -232,7 +268,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(code).emit('SHOWDOWN_STEP', step);
+    sendShowdownStep(code, room);
     broadcastRoom(code);
   });
 
@@ -245,6 +281,7 @@ io.on('connection', (socket) => {
     startNextHeist(room);
     broadcastRoom(code);
     for (const p of room.players) sendPrivateCards(code, p.id);
+    sendPrivateModeState(code);
   });
 
   socket.on('RETURN_TO_LOBBY', () => {
@@ -269,8 +306,59 @@ io.on('connection', (socket) => {
     const { code, room } = found;
     if (room.hostId !== socket.id) return;
     if (room.gameState !== PHASES.LOBBY) return;
-    room.challenges = challenges || [];
+    const allowedIds = room.gameMode === GAME_MODES.IMPOSTER
+      ? new Set(IMPOSTER_CHALLENGE_DEFS.map((challenge) => challenge.id))
+      : new Set(CHALLENGE_DEFS.map((challenge) => challenge.id));
+    const requested = Array.isArray(challenges) ? challenges : [];
+    if (requested.some((id) => !allowedIds.has(id))) {
+      socket.emit('ERROR', { message: 'One or more challenges are invalid for this mode' });
+      return;
+    }
+    room.challenges = [...new Set(requested)];
     broadcastRoom(code);
+  });
+
+  socket.on('SET_GAME_MODE', ({ gameMode } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    if (room.hostId !== socket.id) return;
+    const result = setGameMode(room, gameMode);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
+  });
+
+  socket.on('SELECT_IMPOSTER_TARGET', ({ challengeId, targetPlayerId } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = selectImposterTarget(room, socket.id, challengeId, targetPlayerId);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    socket.emit('PRIVATE_CHALLENGE_STATE', result.data);
+  });
+
+  socket.on('IMPOSTER_ADVICE', ({ targetPlayerId, adviceId } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = submitImposterAdvice(room, socket.id, targetPlayerId, adviceId);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+
+    io.to(result.targetId).emit('FALSE_TRAIL_ADVICE', result.advice);
+    for (const crewPlayer of getCrewPlayers(room)) {
+      io.to(crewPlayer.id).emit('SABOTAGE_RESOLVED', { clue: result.publicClue });
+    }
+    broadcastRoom(code);
+    socket.emit('PRIVATE_CHALLENGE_STATE', getPrivateChallengeData(room, socket.id));
   });
 
   socket.on('SEND_EMOTE', ({ emoteId, targetPlayerId }) => {
@@ -300,8 +388,7 @@ io.on('connection', (socket) => {
     }
     broadcastRoom(code);
     if (result.guessConfirmed) {
-      const step = getShowdownStep(room);
-      io.to(code).emit('SHOWDOWN_STEP', step);
+      sendShowdownStep(code, room);
     }
   });
 

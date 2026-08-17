@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { socket } from '../socket';
 import { useGameStore } from '../store/gameStore';
 import RulesModal from './RulesModal';
+import { GAME_MODES, IMPOSTER_CHALLENGES } from '../imposterMode';
 
 const CHALLENGES = [
   {
@@ -66,12 +67,19 @@ export default function Lobby() {
   const { room, roomCode, myId, playerName, reset, setError } = useGameStore();
   const [showRules, setShowRules] = useState(false);
   const challenges = room?.challenges || [];
+  const gameMode = room?.gameMode || GAME_MODES.CLASSIC;
+  const challengeCatalog = gameMode === GAME_MODES.IMPOSTER ? IMPOSTER_CHALLENGES : CHALLENGES;
 
   const isHost = room?.hostId === myId;
   const players = room?.players || [];
   const canStart = players.length >= 3 && isHost;
 
-  const findName = (id) => CHALLENGES.find((c) => c.id === id)?.name || id;
+  const findName = (id) => challengeCatalog.find((c) => c.id === id)?.name || id;
+
+  const handleModeChange = (nextMode) => {
+    if (!isHost || nextMode === gameMode) return;
+    socket.emit('SET_GAME_MODE', { gameMode: nextMode });
+  };
 
   const toggleChallenge = (id) => {
     // remove
@@ -132,8 +140,35 @@ export default function Lobby() {
 
         <div className="bg-black/25 rounded-2xl p-4 border border-white/10">
             <h3 className="text-sm font-semibold text-white/70 mb-3">Thử thách (tùy chọn)</h3>
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Game mode</div>
+                  <div className="mt-1 text-sm text-white/80">
+                    {gameMode === GAME_MODES.IMPOSTER ? 'Imposter Mode' : 'Classic Mode'}
+                  </div>
+                </div>
+                {isHost ? (
+                  <select
+                    value={gameMode}
+                    onChange={(event) => handleModeChange(event.target.value)}
+                    className="rounded-lg border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white"
+                  >
+                    <option value={GAME_MODES.CLASSIC}>Classic</option>
+                    <option value={GAME_MODES.IMPOSTER}>Imposter</option>
+                  </select>
+                ) : (
+                  <span className="text-xs text-white/45">Host selects</span>
+                )}
+              </div>
+              {gameMode === GAME_MODES.IMPOSTER && (
+                <p className="mt-2 text-xs leading-snug text-amber-200/70">
+                  One hidden Imposter tries to sabotage the Crew. These challenges progress independently during the heist.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {CHALLENGES.map((c) => {
+              {challengeCatalog.map((c) => {
                 const selected = challenges.includes(c.id);
                 return (
                   <button
