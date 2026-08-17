@@ -5,7 +5,6 @@ import {
   GAME_MODES,
   createChallengeProgress,
   incrementChallengeProgress,
-  IMPOSTER_ADVICE_DEFS,
   isImposterMode,
   isSupportedGameMode,
   randomItem,
@@ -86,6 +85,7 @@ export function createRoom(hostId, playerName, maxPlayers = 6) {
     challengeProgress: {},
     publicSabotageHistory: [],
     privateChallengeData: {},
+    crewVerificationRequest: null,
   };
 }
 
@@ -103,6 +103,7 @@ export function setGameMode(room, gameMode) {
   room.challengeProgress = {};
   room.publicSabotageHistory = [];
   room.privateChallengeData = {};
+  room.crewVerificationRequest = null;
   delete room.revealedImposterId;
   for (const player of room.players) {
     player.publicShowdownCards = [];
@@ -212,11 +213,13 @@ export function startGame(room) {
     room.imposterPlayerId = imposter?.id ?? null;
     room.challengeProgress = createChallengeProgress(room.challenges);
     room.publicSabotageHistory = [];
+    room.crewVerificationRequest = null;
   } else {
     room.imposterPlayerId = null;
     room.challengeProgress = {};
     room.publicSabotageHistory = [];
     room.privateChallengeData = {};
+    room.crewVerificationRequest = null;
   }
 
   dealPocketCards(room);
@@ -243,6 +246,7 @@ function logActiveChallenges(room) {
 
 export function advancePhase(room) {
   const current = room.gameState;
+  room.crewVerificationRequest = null;
 
   if (current === PHASES.PRE_FLOP) {
     const revealedCards = revealCommunity(room, 3);
@@ -331,63 +335,18 @@ function getAssignmentEntries(room) {
   }));
 }
 
-function getTruthfulPlacementClue(room) {
-  const orderedCrew = getCrewHandOrder(room);
-  const strongerPairs = [];
-
-  for (let weakerIndex = 0; weakerIndex < orderedCrew.length; weakerIndex += 1) {
-    for (let strongerIndex = weakerIndex + 1; strongerIndex < orderedCrew.length; strongerIndex += 1) {
-      const weaker = orderedCrew[weakerIndex];
-      const stronger = orderedCrew[strongerIndex];
-      const weakerHand = evaluateBestHand(weaker.cards, room.communityCards);
-      const strongerHand = evaluateBestHand(stronger.cards, room.communityCards);
-      if (compareHands(strongerHand, weakerHand) > 0) {
-        strongerPairs.push({ stronger, weaker });
-      }
-    }
-  }
-
-  const pair = randomItem(strongerPairs);
-  if (pair) {
-    return {
-      type: 'RELATIONSHIP',
-      strongerPlayerId: pair.stronger.id,
-      strongerPlayerName: pair.stronger.name,
-      weakerPlayerId: pair.weaker.id,
-      weakerPlayerName: pair.weaker.name,
-      text: `${pair.stronger.name} should rank above ${pair.weaker.name}.`,
-    };
-  }
-
-  if (orderedCrew.length >= 2) {
-    const first = orderedCrew[0];
-    const second = orderedCrew[1];
-    return {
-      type: 'TIED_PLACEMENT',
-      firstPlayerId: first.id,
-      firstPlayerName: first.name,
-      secondPlayerId: second.id,
-      secondPlayerName: second.name,
-      text: `${first.name} and ${second.name} are tied; neither should be ranked above the other.`,
-    };
-  }
-
-  const strongest = orderedCrew[orderedCrew.length - 1];
-  const topCount = Math.min(2, Math.max(1, orderedCrew.length));
-  return {
-    type: 'TOP_PLACEMENT',
-    playerId: strongest?.id ?? null,
-    playerName: strongest?.name ?? 'A player',
-    topCount,
-    text: `${strongest?.name ?? 'A player'} belongs in the top ${topCount}.`,
-  };
-}
-
 function buildAllHands(room) {
   return getCrewPlayers(room).map((player) => ({
     playerId: player.id,
     playerName: player.name,
     cards: player.cards,
+  }));
+}
+
+function buildCommunityForecast(room, level) {
+  return room.deck.slice(0, Math.min(level, 2)).map((card, index) => ({
+    index,
+    card,
   }));
 }
 
@@ -400,30 +359,61 @@ export function preparePrivateChallengeData(room) {
       openBook: null,
       blueprint: null,
       falseTrail: null,
-      targetOptions: [],
+      reroute: null,
+      verification: null,
     };
   }
 
   const imposterData = room.privateChallengeData[room.imposterPlayerId];
   const imposterProgress = room.challengeProgress?.openBook;
-  if (imposterProgress?.imposterLevel === 2 && hasChallenge(room, 'openBook')) {
-    imposterData.openBook = {
-      level: 2,
-      hands: buildAllHands(room),
-    };
+  if (imposterProgress?.imposterLevel > 0 && hasChallenge(room, 'openBook')) {
+    if (imposterProgress.imposterLevel >= 2) {
+      imposterData.openBook = { level: 2, hands: buildAllHands(room) };
+    } else {
+      const target = randomItem(getCrewPlayers(room));
+      imposterData.openBook = target
+        ? {
+          level: 1,
+          target: {
+            playerId: target.id,
+            playerName: target.name,
+            cards: target.cards,
+          },
+        }
+        : null;
+    }
   }
 
   const imposterBlueprint = room.challengeProgress?.blueprint;
-  if (imposterBlueprint?.imposterLevel === 2 && hasChallenge(room, 'blueprint')) {
-    imposterData.blueprint = {
-      level: 2,
-      ranking: getCrewHandOrder(room).map((player, index) => ({
-        playerId: player.id,
-        playerName: player.name,
-        position: index + 1,
-      })),
-      assignment: getAssignmentEntries(room),
-    };
+  if (imposterBlueprint?.imposterLevel > 0 && hasChallenge(room, 'blueprint')) {
+    if (imposterBlueprint.imposterLevel >= 2) {
+      imposterData.blueprint = {
+        level: 2,
+        ranking: getCrewHandOrder(room).map((player, index) => ({
+          playerId: player.id,
+          playerName: player.name,
+          position: index + 1,
+        })),
+        assignment: getAssignmentEntries(room),
+      };
+    } else {
+      const target = randomItem(getCrewPlayers(room));
+      const assignment = getIdealChipAssignment(room);
+      const targetPosition = target
+        ? getCrewHandOrder(room).findIndex((player) => player.id === target.id) + 1
+        : null;
+      imposterData.blueprint = target
+        ? {
+          level: 1,
+          target: {
+            playerId: target.id,
+            playerName: target.name,
+            position: targetPosition,
+            idealChipValue: assignment[target.id] ?? null,
+          },
+        }
+        : null;
+    }
   }
 
   const falseTrailProgress = room.challengeProgress?.falseTrail;
@@ -437,29 +427,32 @@ export function preparePrivateChallengeData(room) {
 
   for (const crewPlayer of getCrewPlayers(room)) {
     const crewData = room.privateChallengeData[crewPlayer.id];
-    const blueprintProgress = room.challengeProgress?.blueprint;
-    if (blueprintProgress?.crewLevel === 1 && hasChallenge(room, 'blueprint')) {
-      crewData.blueprint = {
-        level: 1,
-        clue: getTruthfulPlacementClue(room),
-      };
-    } else if (blueprintProgress?.crewLevel === 2 && hasChallenge(room, 'blueprint')) {
-      crewData.blueprint = {
-        level: 2,
-        assignment: getAssignmentEntries(room),
+    const openBookProgress = room.challengeProgress?.openBook;
+    if (openBookProgress?.crewLevel > 0 && hasChallenge(room, 'openBook')) {
+      crewData.openBook = {
+        level: openBookProgress.crewLevel,
+        forecast: buildCommunityForecast(room, openBookProgress.crewLevel),
       };
     }
-  }
 
-  const targetOptions = getCrewPlayers(room).map((player) => ({
-    playerId: player.id,
-    playerName: player.name,
-  }));
-  if (imposterProgress?.imposterLevel === 1 && hasChallenge(room, 'openBook')) {
-    imposterData.targetOptions.push({ challengeId: 'openBook', players: targetOptions });
-  }
-  if (imposterBlueprint?.imposterLevel === 1 && hasChallenge(room, 'blueprint')) {
-    imposterData.targetOptions.push({ challengeId: 'blueprint', players: targetOptions });
+    const blueprintProgress = room.challengeProgress?.blueprint;
+    if (blueprintProgress?.crewLevel > 0 && hasChallenge(room, 'blueprint')) {
+      crewData.blueprint = {
+        level: blueprintProgress.crewLevel,
+        reroute: true,
+        used: blueprintProgress.rerouteUsed,
+        maxUses: blueprintProgress.crewLevel,
+      };
+    }
+
+    const falseTrailCrewProgress = room.challengeProgress?.falseTrail;
+    if (falseTrailCrewProgress?.crewLevel > 0 && hasChallenge(room, 'falseTrail')) {
+      crewData.verification = {
+        level: falseTrailCrewProgress.crewLevel,
+        used: falseTrailCrewProgress.verificationUsed,
+        maxUses: falseTrailCrewProgress.crewLevel,
+      };
+    }
   }
 }
 
@@ -468,7 +461,8 @@ export function getPrivateChallengeData(room, playerId) {
     openBook: null,
     blueprint: null,
     falseTrail: null,
-    targetOptions: [],
+    reroute: null,
+    verification: null,
   };
 }
 
@@ -477,61 +471,7 @@ export function getPlayerRole(room, playerId) {
   return playerId === room.imposterPlayerId ? 'IMPOSTER' : 'CREW';
 }
 
-export function selectImposterTarget(room, playerId, challengeId, targetPlayerId) {
-  if (!isImposterMode(room) || playerId !== room.imposterPlayerId) {
-    return { error: 'Only the Imposter can select Intel targets' };
-  }
-  if (!canUseImposterAction(room)) {
-    return { error: 'Intel target selection is unavailable in this phase' };
-  }
-
-  const progress = room.challengeProgress?.[challengeId];
-  if (!progress || progress.imposterLevel !== 1) {
-    return { error: 'This Intel target is not available' };
-  }
-  if (!['openBook', 'blueprint'].includes(challengeId) || !hasChallenge(room, challengeId)) {
-    return { error: 'This Intel target is invalid' };
-  }
-
-  const target = getCrewPlayers(room).find((player) => player.id === targetPlayerId);
-  if (!target) return { error: 'Intel target must be a Crew player' };
-
-  const data = room.privateChallengeData[playerId];
-  if (!data) return { error: 'Private Intel is not ready' };
-
-  const existingSelection = challengeId === 'openBook' ? data.openBook : data.blueprint;
-  if (existingSelection) {
-    return { error: 'This Intel target has already been selected' };
-  }
-
-  if (challengeId === 'openBook') {
-    data.openBook = {
-      level: 1,
-      target: {
-        playerId: target.id,
-        playerName: target.name,
-        cards: target.cards,
-      },
-    };
-  } else {
-    const assignment = getIdealChipAssignment(room);
-    const targetPosition = getCrewHandOrder(room).findIndex((player) => player.id === target.id) + 1;
-    data.blueprint = {
-      level: 1,
-      target: {
-        playerId: target.id,
-        playerName: target.name,
-        position: targetPosition,
-        idealChipValue: assignment[target.id] ?? null,
-      },
-    };
-  }
-
-  data.targetOptions = data.targetOptions.filter((entry) => entry.challengeId !== challengeId);
-  return { ok: true, data: getPrivateChallengeData(room, playerId) };
-}
-
-export function submitImposterAdvice(room, playerId, targetPlayerId, adviceId) {
+export function submitImposterAdvice(room, playerId, targetPlayerId, suggestedChipValue) {
   if (!isImposterMode(room) || playerId !== room.imposterPlayerId) {
     return { error: 'Only the Imposter can send False Trail advice' };
   }
@@ -543,13 +483,20 @@ export function submitImposterAdvice(room, playerId, targetPlayerId, adviceId) {
   }
 
   const progress = room.challengeProgress?.falseTrail;
-  const advice = IMPOSTER_ADVICE_DEFS.find((item) => item.id === adviceId);
   const target = getCrewPlayers(room).find((player) => player.id === targetPlayerId);
   const maxUses = Math.max(0, progress?.imposterLevel || 0);
-  const decisionKey = `${room.heistNumber}:${room.gameState}:${room.currentChipColor || 'none'}`;
+  const currentChipValue = room.roundSelections?.[targetPlayerId];
+  const suggestedValue = Number(suggestedChipValue);
+  const decisionKey = `${room.heistNumber}:${room.gameState}:${targetPlayerId}`;
 
-  if (!progress || !advice || !target) {
+  if (!progress || !target || currentChipValue == null || !Number.isInteger(suggestedValue)) {
     return { error: 'False Trail advice is invalid' };
+  }
+  if (suggestedValue === currentChipValue || !room.availableChips.includes(suggestedValue)) {
+    return { error: 'False Trail advice must be a different available chip' };
+  }
+  if (room.lockedChips.has(suggestedValue)) {
+    return { error: 'False Trail advice cannot suggest a locked chip' };
   }
   if (progress.adviceUsed >= maxUses) {
     return { error: 'No False Trail advice remains' };
@@ -564,30 +511,140 @@ export function submitImposterAdvice(room, playerId, targetPlayerId, adviceId) {
   if (privateData?.falseTrail) {
     privateData.falseTrail.used = progress.adviceUsed;
   }
-  const publicClue = progress.crewLevel >= 2
-    ? {
-      category: 'communication',
-      affectedPhase: room.gameState,
-      decisionType: room.currentChipColor || 'showdown',
-    }
-    : progress.crewLevel === 1
-      ? { category: 'communication' }
-      : null;
 
   room.publicSabotageHistory.push({
     time: Date.now(),
     category: 'communication',
+    affectedPhase: room.gameState,
+    decisionType: 'chip',
   });
 
   return {
     ok: true,
     targetId: target.id,
     advice: {
-      id: advice.id,
-      label: advice.label,
+      suggestedChipValue: suggestedValue,
+      currentChipValue,
+      phase: room.gameState,
       fromName: room.players.find((player) => player.id === playerId)?.name || 'Player',
     },
-    publicClue,
+  };
+}
+
+function updateCrewPrivateUse(room, challengeId, field, value) {
+  for (const crewPlayer of getCrewPlayers(room)) {
+    const data = room.privateChallengeData?.[crewPlayer.id];
+    if (data?.[challengeId]) data[challengeId][field] = value;
+    if (challengeId === 'falseTrail' && data?.verification) data.verification[field] = value;
+  }
+}
+
+export function useCrewReroute(room, playerId, replacementChipValue) {
+  if (!isImposterMode(room) || !getCrewPlayers(room).some((player) => player.id === playerId)) {
+    return { error: 'Only Crew players can use Reroute' };
+  }
+  if (!canUseImposterAction(room) || !hasChallenge(room, 'blueprint')) {
+    return { error: 'Reroute is unavailable in this phase' };
+  }
+
+  const progress = room.challengeProgress?.blueprint;
+  const target = randomItem(getCrewPlayers(room).filter((player) => (
+    room.roundSelections?.[player.id] != null && !room.roundConfirmed[player.id]
+  )));
+  const replacement = Number(replacementChipValue);
+  const current = target ? room.roundSelections?.[target.id] : null;
+
+  if (!progress || !target || current == null || !Number.isInteger(replacement)) {
+    return { error: 'Reroute selection is invalid' };
+  }
+  if (progress.rerouteUsed >= progress.crewLevel) {
+    return { error: 'No Reroute uses remain' };
+  }
+  if (replacement === current || !room.availableChips.includes(replacement)) {
+    return { error: 'Reroute must use a different available chip' };
+  }
+  if (room.lockedChips.has(current) || room.lockedChips.has(replacement) || shouldLockChip(room, replacement)) {
+    return { error: 'Reroute cannot change a locked chip' };
+  }
+
+  room.availableChips = room.availableChips.filter((chip) => chip !== replacement);
+  room.availableChips.push(current);
+  room.availableChips.sort((a, b) => a - b);
+  room.roundSelections[target.id] = replacement;
+  room.roundConfirmed[target.id] = false;
+  progress.rerouteUsed += 1;
+  updateCrewPrivateUse(room, 'blueprint', 'used', progress.rerouteUsed);
+
+  return {
+    ok: true,
+    targetId: target.id,
+    previousChipValue: current,
+    replacementChipValue: replacement,
+    phase: room.gameState,
+  };
+}
+
+export function requestCrewVerification(room, playerId, targetPlayerId, verifierPlayerId) {
+  if (!isImposterMode(room) || !getCrewPlayers(room).some((player) => player.id === playerId)) {
+    return { error: 'Only Crew players can request Verification' };
+  }
+  if (!canUseImposterAction(room) || !hasChallenge(room, 'falseTrail')) {
+    return { error: 'Crew Verification is unavailable in this phase' };
+  }
+
+  const progress = room.challengeProgress?.falseTrail;
+  const target = room.players.find((player) => player.id === targetPlayerId);
+  const verifier = room.players.find((player) => player.id === verifierPlayerId);
+  const chipValue = room.roundSelections?.[targetPlayerId];
+
+  if (!progress || !target || !verifier || target.id === verifier.id || chipValue == null) {
+    return { error: 'Verification request is invalid' };
+  }
+  if (room.crewVerificationRequest) return { error: 'A Verification request is already pending' };
+  if (progress.verificationUsed >= progress.crewLevel) return { error: 'No Verification uses remain' };
+
+  progress.verificationUsed += 1;
+  updateCrewPrivateUse(room, 'falseTrail', 'used', progress.verificationUsed);
+  const requester = room.players.find((player) => player.id === playerId);
+  const request = {
+    requestId: `${Date.now()}-${progress.verificationUsed}`,
+    requesterId: playerId,
+    requesterName: requester?.name || 'Crew player',
+    targetPlayerId: target.id,
+    targetName: target.name,
+    verifierPlayerId: verifier.id,
+    verifierName: verifier.name,
+    chipValue,
+    phase: room.gameState,
+    status: 'pending',
+  };
+  room.crewVerificationRequest = request;
+  return { ok: true, request };
+}
+
+export function respondCrewVerification(room, playerId, requestId, accepted) {
+  const request = room.crewVerificationRequest;
+  if (!request || request.requestId !== requestId) return { error: 'Verification request is no longer pending' };
+  if (playerId !== request.verifierPlayerId) return { error: 'Only the selected verifier can respond' };
+  if (room.gameState !== request.phase) {
+    room.crewVerificationRequest = null;
+    return { error: 'Verification request expired' };
+  }
+
+  const result = {
+    requestId: request.requestId,
+    targetPlayerId: request.targetPlayerId,
+    targetName: request.targetName,
+    chipValue: request.chipValue,
+    phase: request.phase,
+    decision: accepted ? 'ACCEPTED' : 'RECONSIDER',
+    verifierName: request.verifierName,
+  };
+  room.crewVerificationRequest = null;
+  return {
+    ok: true,
+    recipientIds: [request.requesterId, request.targetPlayerId, request.verifierPlayerId],
+    result,
   };
 }
 
@@ -1084,6 +1141,7 @@ export function startNextHeist(room) {
 
   initChipPool(room);
   resetChallengeUses(room);
+  room.crewVerificationRequest = null;
   preparePrivateChallengeData(room);
   room.showdownOrder = [];
   room.showdownIndex = 0;
@@ -1125,6 +1183,7 @@ export function returnToLobby(room) {
   room.challengeProgress = {};
   room.publicSabotageHistory = [];
   room.privateChallengeData = {};
+  room.crewVerificationRequest = null;
 
   return { ok: true };
 }

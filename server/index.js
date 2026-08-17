@@ -8,7 +8,6 @@ import {
   createRoom,
   generateRoomCode,
   getPlayerRole,
-  getCrewPlayers,
   getPrivateChallengeData,
   startGame,
   advancePhase,
@@ -24,9 +23,11 @@ import {
   startNextHeist,
   returnToLobby,
   submitGuess,
-  selectImposterTarget,
   setGameMode,
   submitImposterAdvice,
+  useCrewReroute,
+  requestCrewVerification,
+  respondCrewVerification,
   PHASES,
 } from './src/gameEngine.js';
 import { CHALLENGE_DEFS } from './src/challenges.js';
@@ -331,34 +332,61 @@ io.on('connection', (socket) => {
     broadcastRoom(code);
   });
 
-  socket.on('SELECT_IMPOSTER_TARGET', ({ challengeId, targetPlayerId } = {}) => {
+  socket.on('IMPOSTER_ADVICE', ({ targetPlayerId, suggestedChipValue } = {}) => {
     const found = getRoomBySocket(socket.id);
     if (!found) return;
     const { code, room } = found;
-    const result = selectImposterTarget(room, socket.id, challengeId, targetPlayerId);
-    if (result.error) {
-      socket.emit('ERROR', { message: result.error });
-      return;
-    }
-    socket.emit('PRIVATE_CHALLENGE_STATE', result.data);
-  });
-
-  socket.on('IMPOSTER_ADVICE', ({ targetPlayerId, adviceId } = {}) => {
-    const found = getRoomBySocket(socket.id);
-    if (!found) return;
-    const { code, room } = found;
-    const result = submitImposterAdvice(room, socket.id, targetPlayerId, adviceId);
+    const result = submitImposterAdvice(room, socket.id, targetPlayerId, suggestedChipValue);
     if (result.error) {
       socket.emit('ERROR', { message: result.error });
       return;
     }
 
     io.to(result.targetId).emit('FALSE_TRAIL_ADVICE', result.advice);
-    for (const crewPlayer of getCrewPlayers(room)) {
-      io.to(crewPlayer.id).emit('SABOTAGE_RESOLVED', { clue: result.publicClue });
-    }
     broadcastRoom(code);
     socket.emit('PRIVATE_CHALLENGE_STATE', getPrivateChallengeData(room, socket.id));
+  });
+
+  socket.on('CREW_REROUTE', ({ replacementChipValue } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = useCrewReroute(room, socket.id, replacementChipValue);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
+    sendPrivateModeState(code);
+  });
+
+  socket.on('REQUEST_CREW_VERIFICATION', ({ targetPlayerId, verifierPlayerId } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    const result = requestCrewVerification(room, socket.id, targetPlayerId, verifierPlayerId);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    io.to(result.request.verifierPlayerId).emit('CREW_VERIFICATION_REQUEST', result.request);
+    io.to(result.request.requesterId).emit('CREW_VERIFICATION_SENT', result.request);
+    broadcastRoom(code);
+    sendPrivateModeState(code);
+  });
+
+  socket.on('RESPOND_CREW_VERIFICATION', ({ requestId, accepted } = {}) => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { room } = found;
+    const result = respondCrewVerification(room, socket.id, requestId, Boolean(accepted));
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    for (const recipientId of result.recipientIds) {
+      io.to(recipientId).emit('CREW_VERIFICATION_RESULT', result.result);
+    }
   });
 
   socket.on('SEND_EMOTE', ({ emoteId, targetPlayerId }) => {
@@ -396,6 +424,13 @@ io.on('connection', (socket) => {
     for (const [code, room] of Object.entries(rooms)) {
       const idx = room.players.findIndex((p) => p.id === socket.id);
       if (idx !== -1) {
+        if (room.crewVerificationRequest && [
+          room.crewVerificationRequest.requesterId,
+          room.crewVerificationRequest.targetPlayerId,
+          room.crewVerificationRequest.verifierPlayerId,
+        ].includes(socket.id)) {
+          room.crewVerificationRequest = null;
+        }
         if (room.gameState === PHASES.LOBBY) {
           room.players.splice(idx, 1);
           if (room.players.length === 0) {

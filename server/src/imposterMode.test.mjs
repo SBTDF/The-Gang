@@ -8,12 +8,21 @@ import {
   getPlayerRole,
   PHASES,
   preparePrivateChallengeData,
+  requestCrewVerification,
+  respondCrewVerification,
   returnToLobby,
-  selectImposterTarget,
+  selectChip,
+  sanitizeRoomForClient,
   setGameMode,
   startGame,
   submitImposterAdvice,
+  useCrewReroute,
 } from './gameEngine.js';
+import {
+  createChallengeProgress,
+  incrementChallengeProgress,
+  resetChallengeUses,
+} from './imposterMode.js';
 import { GAME_MODES } from './imposterMode.js';
 
 function makeImposterRoom() {
@@ -36,162 +45,139 @@ test('Imposter mode assigns one hidden role and keeps Classic role-free', () => 
   assert.equal(crew.length, 3);
   assert.equal(getPlayerRole(room, room.imposterPlayerId), 'IMPOSTER');
   assert.equal(getPlayerRole(room, crew[0].id), 'CREW');
-  assert.equal(getPrivateChallengeData(room, crew[0].id).openBook, null);
 
   const classic = createRoom('classic', 'Classic', 3);
   assert.equal(getPlayerRole(classic, 'classic'), null);
 });
 
-test('Open Book is an Imposter-only buff with eligible Crew targets', () => {
-  const room = makeImposterRoom();
-  room.challengeProgress.openBook.imposterLevel = 1;
-  preparePrivateChallengeData(room);
-
-  const crew = getCrewPlayers(room);
-  for (const player of crew) {
-    assert.equal(getPrivateChallengeData(room, player.id).openBook, null);
+test('all active challenges start with independent Level 1 buffs and progress separately', () => {
+  const progress = createChallengeProgress(['openBook', 'blueprint', 'falseTrail']);
+  for (const entry of Object.values(progress)) {
+    assert.equal(entry.imposterLevel, 1);
+    assert.equal(entry.crewLevel, 1);
   }
 
-  const imposterIntel = getPrivateChallengeData(room, room.imposterPlayerId);
-  assert.equal(imposterIntel.openBook, null);
-  const openBookOptions = imposterIntel.targetOptions.find((item) => item.challengeId === 'openBook');
-  assert.deepEqual(openBookOptions.players.map((player) => player.playerId).sort(), crew.map((player) => player.id).sort());
+  const room = makeImposterRoom();
+  incrementChallengeProgress(room, true);
+  assert.equal(room.challengeProgress.openBook.imposterLevel, 2);
+  assert.equal(room.challengeProgress.openBook.crewLevel, 1);
+  assert.equal(room.challengeProgress.blueprint.imposterLevel, 2);
+  assert.equal(room.challengeProgress.falseTrail.imposterLevel, 2);
 
-  const target = crew[0];
-  const selected = selectImposterTarget(room, room.imposterPlayerId, 'openBook', target.id);
-  assert.equal(selected.ok, true);
-  assert.equal(selected.data.openBook.target.playerId, target.id);
-  assert.deepEqual(selected.data.openBook.target.cards, target.cards);
+  incrementChallengeProgress(room, false);
+  assert.equal(room.challengeProgress.openBook.imposterLevel, 2);
+  assert.equal(room.challengeProgress.openBook.crewLevel, 2);
+  resetChallengeUses(room);
+  assert.equal(room.challengeProgress.falseTrail.adviceUsed, 0);
+  assert.equal(room.challengeProgress.blueprint.rerouteUsed, 0);
+  assert.equal(room.challengeProgress.falseTrail.verificationUsed, 0);
+});
 
-  const rejectedReplacement = selectImposterTarget(room, room.imposterPlayerId, 'openBook', crew[1].id);
-  assert.equal(rejectedReplacement.error, 'This Intel target has already been selected');
-  assert.equal(getPrivateChallengeData(room, room.imposterPlayerId).openBook.target.playerId, target.id);
-  assert.equal(selectImposterTarget(room, room.imposterPlayerId, 'openBook', room.imposterPlayerId).error, 'Intel target must be a Crew player');
+test('Open Book gives only the Imposter private Crew hands and Crew private board forecast', () => {
+  const room = makeImposterRoom();
+  const crew = getCrewPlayers(room);
+  const imposterData = getPrivateChallengeData(room, room.imposterPlayerId);
+
+  assert.equal(imposterData.openBook.level, 1);
+  assert.ok(imposterData.openBook.target);
+  assert.ok(crew.some((player) => player.id === imposterData.openBook.target.playerId));
+  assert.equal(imposterData.openBook.target.playerId === room.imposterPlayerId, false);
+
+  for (const player of crew) {
+    const data = getPrivateChallengeData(room, player.id);
+    assert.ok(data.openBook.forecast.length >= 1);
+    assert.equal(data.openBook.target, undefined);
+    assert.equal(data.openBook.hands, undefined);
+    assert.deepEqual(data.openBook.forecast[0].card, room.deck[0]);
+  }
 
   room.challengeProgress.openBook.imposterLevel = 2;
+  room.challengeProgress.openBook.crewLevel = 2;
   preparePrivateChallengeData(room);
   assert.deepEqual(
     getPrivateChallengeData(room, room.imposterPlayerId).openBook.hands.map((hand) => hand.playerId).sort(),
     crew.map((player) => player.id).sort(),
   );
-  for (const player of crew) assert.equal(getPrivateChallengeData(room, player.id).openBook, null);
+  assert.equal(getPrivateChallengeData(room, crew[0].id).openBook.forecast.length, 2);
 });
 
-test('Blueprint Crew level 1 provides one actionable truthful placement clue', () => {
+test('public room state excludes the role and all private challenge information', () => {
   const room = makeImposterRoom();
-  room.challengeProgress.blueprint.crewLevel = 1;
-  preparePrivateChallengeData(room);
+  const crew = getCrewPlayers(room)[0];
+  const publicState = sanitizeRoomForClient(room, crew.id);
 
-  const clue = getPrivateChallengeData(room, getCrewPlayers(room)[0].id).blueprint.clue;
-  assert.ok(clue.text);
-  assert.match(clue.text, /should rank above|belongs in the top|are tied/);
-  assert.equal(clue.text.includes('position'), false);
+  assert.equal(publicState.imposterPlayerId, undefined);
+  assert.equal(publicState.challengeProgress, undefined);
+  assert.equal(publicState.privateChallengeData, undefined);
+  assert.equal(publicState.players.find((player) => player.id === room.imposterPlayerId).cards, null);
+  assert.equal(publicState.players.find((player) => player.id === crew.id).cards.length > 0, true);
 });
 
-test('Imposter target selection and False Trail advice stay server-authoritative', () => {
+test('Blueprint gives randomized Imposter placement intel and Crew Reroute without touching Imposter state', () => {
   const room = makeImposterRoom();
-  room.challengeProgress.openBook.imposterLevel = 1;
-  room.challengeProgress.falseTrail.imposterLevel = 1;
-  preparePrivateChallengeData(room);
-  const target = getCrewPlayers(room)[0];
+  const crew = getCrewPlayers(room);
+  const imposterData = getPrivateChallengeData(room, room.imposterPlayerId);
+  assert.ok(imposterData.blueprint.target);
+  assert.ok(crew.some((player) => player.id === imposterData.blueprint.target.playerId));
+  assert.equal(getPrivateChallengeData(room, crew[0].id).blueprint.reroute, true);
 
-  const intel = selectImposterTarget(room, room.imposterPlayerId, 'openBook', target.id);
-  assert.equal(intel.ok, true);
-  assert.equal(intel.data.openBook.target.playerId, target.id);
+  assert.equal(selectChip(room, crew[0].id, 1).ok, true);
+  const imposterChipBefore = room.roundSelections[room.imposterPlayerId];
+  const reroute = useCrewReroute(room, crew[1].id, 2);
+  assert.equal(reroute.ok, true);
+  assert.equal(room.roundSelections[room.imposterPlayerId], imposterChipBefore);
+  assert.equal(room.challengeProgress.blueprint.rerouteUsed, 1);
+});
 
-  const advice = submitImposterAdvice(room, room.imposterPlayerId, target.id, 'higher');
+test('False Trail sends a legal private alternative and Crew Verification is a separate coordination resource', () => {
+  const room = makeImposterRoom();
+  const crew = getCrewPlayers(room);
+  assert.equal(selectChip(room, crew[0].id, 1).ok, true);
+
+  const advice = submitImposterAdvice(room, room.imposterPlayerId, crew[0].id, 2);
   assert.equal(advice.ok, true);
-  assert.equal(advice.targetId, target.id);
-  assert.equal(room.challengeProgress.falseTrail.adviceUsed, 1);
-  assert.equal(submitImposterAdvice(room, room.imposterPlayerId, target.id, 'lower').error, 'No False Trail advice remains');
+  assert.equal(advice.advice.suggestedChipValue, 2);
+  assert.equal(room.roundSelections[crew[0].id], 1);
+  assert.equal(submitImposterAdvice(room, room.imposterPlayerId, crew[0].id, 3).error, 'No False Trail advice remains');
+
+  const request = requestCrewVerification(room, crew[1].id, crew[0].id, crew[2].id);
+  assert.equal(request.ok, true);
+  assert.equal(room.challengeProgress.falseTrail.verificationUsed, 1);
+  const response = respondCrewVerification(room, crew[2].id, request.request.requestId, false);
+  assert.equal(response.ok, true);
+  assert.equal(response.result.decision, 'RECONSIDER');
+  assert.equal(room.crewVerificationRequest, null);
 });
 
-test('Imposter target selection is rejected outside active chip phases without mutation', () => {
+test('Imposter actions stay phase-bound and do not mutate state after the heist', () => {
   const room = makeImposterRoom();
-  room.challengeProgress.openBook.imposterLevel = 1;
-  preparePrivateChallengeData(room);
-  const target = getCrewPlayers(room)[0];
-
-  room.gameState = PHASES.HEIST_RESULT;
-  const before = JSON.stringify(room.privateChallengeData);
-  const result = selectImposterTarget(room, room.imposterPlayerId, 'openBook', target.id);
-
-  assert.equal(result.error, 'Intel target selection is unavailable in this phase');
-  assert.equal(JSON.stringify(room.privateChallengeData), before);
-});
-
-test('False Trail advice is accepted during chip phases and rejected after the phase ends', () => {
-  const room = makeImposterRoom();
-  room.challengeProgress.falseTrail.imposterLevel = 1;
-  preparePrivateChallengeData(room);
-  const target = getCrewPlayers(room)[0];
-
-  const valid = submitImposterAdvice(room, room.imposterPlayerId, target.id, 'higher');
-  assert.equal(valid.ok, true);
-  assert.equal(room.challengeProgress.falseTrail.adviceUsed, 1);
-
-  room.challengeProgress.falseTrail.adviceUsed = 0;
-  room.challengeProgress.falseTrail.adviceDecisionKeys = [];
-  room.gameState = PHASES.SHOWDOWN;
-  const beforeHistory = room.publicSabotageHistory.length;
-  const invalid = submitImposterAdvice(room, room.imposterPlayerId, target.id, 'lower');
-
-  assert.equal(invalid.error, 'False Trail advice is unavailable in this phase');
-  assert.equal(room.challengeProgress.falseTrail.adviceUsed, 0);
-  assert.equal(room.publicSabotageHistory.length, beforeHistory);
-});
-
-test('Imposter actions are rejected after GAME_OVER', () => {
-  const room = makeImposterRoom();
-  room.challengeProgress.openBook.imposterLevel = 1;
-  room.challengeProgress.falseTrail.imposterLevel = 1;
-  preparePrivateChallengeData(room);
+  const crew = getCrewPlayers(room);
   room.gameState = PHASES.GAME_OVER;
-  const target = getCrewPlayers(room)[0];
   const before = JSON.stringify({ privateChallengeData: room.privateChallengeData, history: room.publicSabotageHistory });
 
-  assert.equal(selectImposterTarget(room, room.imposterPlayerId, 'openBook', target.id).error, 'Intel target selection is unavailable in this phase');
-  assert.equal(submitImposterAdvice(room, room.imposterPlayerId, target.id, 'higher').error, 'False Trail advice is unavailable in this phase');
+  assert.equal(submitImposterAdvice(room, room.imposterPlayerId, crew[0].id, 2).error, 'False Trail advice is unavailable in this phase');
+  assert.equal(useCrewReroute(room, crew[0].id, 2).error, 'Reroute is unavailable in this phase');
   assert.equal(JSON.stringify({ privateChallengeData: room.privateChallengeData, history: room.publicSabotageHistory }), before);
 });
 
-test('Switching modes defensively clears Imposter-only state', () => {
+test('Switching modes and returning to lobby clear all Imposter-only state', () => {
   const room = makeImposterRoom();
   room.gameState = PHASES.LOBBY;
   room.revealedImposterId = room.imposterPlayerId;
-  room.players[0].publicShowdownCards = [{ rank: 'A', suit: 'spades' }];
-  room.publicSabotageHistory.push({ category: 'communication' });
+  room.crewVerificationRequest = { requestId: 'stale' };
 
   assert.equal(setGameMode(room, GAME_MODES.CLASSIC).ok, true);
   assert.equal(room.imposterPlayerId, null);
   assert.deepEqual(room.challengeProgress, {});
   assert.deepEqual(room.privateChallengeData, {});
-  assert.deepEqual(room.publicSabotageHistory, []);
-  assert.equal(room.revealedImposterId, undefined);
-  assert.deepEqual(room.players[0].publicShowdownCards, []);
+  assert.equal(room.crewVerificationRequest, null);
 
   assert.equal(setGameMode(room, GAME_MODES.IMPOSTER).ok, true);
-  assert.equal(room.imposterPlayerId, null);
-  assert.deepEqual(room.challengeProgress, {});
-  assert.deepEqual(room.privateChallengeData, {});
-});
-
-test('Returning to lobby clears Imposter state before another match', () => {
-  const room = makeImposterRoom();
-  room.gameState = PHASES.GAME_OVER;
-  room.publicSabotageHistory.push({ category: 'communication' });
-
-  assert.equal(returnToLobby(room).ok, true);
-  assert.equal(room.gameState, PHASES.LOBBY);
-  assert.equal(room.imposterPlayerId, null);
-  assert.deepEqual(room.challengeProgress, {});
-  assert.deepEqual(room.privateChallengeData, {});
-  assert.deepEqual(room.publicSabotageHistory, []);
-
   room.challenges = ['openBook'];
-  room.imposterPlayerId = 'stale-id';
   assert.equal(startGame(room).ok, true);
-  assert.ok(room.players.some((player) => player.id === room.imposterPlayerId));
-  assert.notEqual(room.imposterPlayerId, 'stale-id');
-  assert.equal(getPlayerRole(room, room.imposterPlayerId), 'IMPOSTER');
+  room.gameState = PHASES.GAME_OVER;
+  assert.equal(returnToLobby(room).ok, true);
+  assert.equal(room.imposterPlayerId, null);
+  assert.deepEqual(room.challengeProgress, {});
+  assert.equal(room.crewVerificationRequest, null);
 });

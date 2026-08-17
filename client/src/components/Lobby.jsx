@@ -186,6 +186,12 @@ export default function Lobby() {
                           {selected ? 'ACTIVE' : 'DISABLED'}
                         </div>
                         <p className="text-[13px] text-white/75 mt-2 leading-snug">{c.desc}</p>
+                        {gameMode === GAME_MODES.IMPOSTER && (
+                          <div className="mt-2 space-y-1 text-[11px] leading-snug">
+                            <div className="text-red-200/75">Imposter buff: {c.imposterBuff}</div>
+                            <div className="text-emerald-200/75">Crew buff: {c.crewBuff}</div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-shrink-0">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${selected ? 'bg-gold text-felt-dark' : 'bg-white/5 text-white/40'}`}>

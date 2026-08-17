@@ -7,23 +7,22 @@ export const IMPOSTER_CHALLENGES = [
   {
     id: 'openBook',
     name: 'Open Book',
-    desc: 'The winning side gains increasingly powerful private hand information for the next heist.',
+    desc: 'Imposter: Crew Hand Recon. Crew: Community Forecast.',
+    imposterBuff: 'Crew Hand Recon',
+    crewBuff: 'Community Forecast',
   },
   {
     id: 'blueprint',
     name: 'Blueprint',
-    desc: 'The winning side gains increasingly powerful private ranking and chip-placement information for the next heist.',
+    desc: 'Imposter: Position Blueprint. Crew: Reroute.',
+    imposterBuff: 'Position Blueprint',
+    crewBuff: 'Reroute',
   },
   {
     id: 'falseTrail',
     name: 'False Trail',
-    desc: 'The Imposter can privately send misleading recommendations while the Crew gains truthful sabotage clues after failures.',
+    desc: 'Imposter: Legal Decoy Suggestion. Crew: Crew Verification.',
+    imposterBuff: 'Legal Decoy Suggestion',
+    crewBuff: 'Crew Verification',
   },
-];
-
-export const IMPOSTER_ADVICE = [
-  { id: 'higher', label: 'Recommend higher', icon: '⬆️' },
-  { id: 'lower', label: 'Recommend lower', icon: '⬇️' },
-  { id: 'agree', label: 'Recommend this position', icon: '👍' },
-  { id: 'swap', label: 'Recommend a swap', icon: '🔄' },
 ];

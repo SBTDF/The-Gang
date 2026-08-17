@@ -15,7 +15,8 @@ export default function App() {
     setMyRole,
     setPrivateChallengeState,
     setFalseTrailAdvice,
-    setSabotageClue,
+    setCrewVerificationRequest,
+    setCrewVerificationResult,
     setError,
     setShowdownStep,
     setGameOver,
@@ -48,7 +49,8 @@ export default function App() {
           myRole: null,
           privateChallengeState: null,
           falseTrailAdvice: null,
-          sabotageClue: null,
+          crewVerificationRequest: null,
+          crewVerificationResult: null,
         });
       } else {
         useGameStore.setState({ screen: 'game' });
@@ -80,7 +82,15 @@ export default function App() {
 
     socket.on('FALSE_TRAIL_ADVICE', (advice) => setFalseTrailAdvice(advice));
 
-    socket.on('SABOTAGE_RESOLVED', ({ clue }) => setSabotageClue(clue || null));
+    socket.on('CREW_VERIFICATION_REQUEST', (request) => setCrewVerificationRequest(request));
+    socket.on('CREW_VERIFICATION_SENT', (request) => setCrewVerificationResult({
+      ...request,
+      decision: 'PENDING',
+    }));
+    socket.on('CREW_VERIFICATION_RESULT', (result) => {
+      setCrewVerificationRequest(null);
+      setCrewVerificationResult(result);
+    });
 
     socket.on('ERROR', ({ message }) => setError(message));
 
@@ -104,7 +114,9 @@ export default function App() {
       socket.off('YOUR_ROLE');
       socket.off('PRIVATE_CHALLENGE_STATE');
       socket.off('FALSE_TRAIL_ADVICE');
-      socket.off('SABOTAGE_RESOLVED');
+      socket.off('CREW_VERIFICATION_REQUEST');
+      socket.off('CREW_VERIFICATION_SENT');
+      socket.off('CREW_VERIFICATION_RESULT');
       socket.off('ERROR');
       socket.off('SHOWDOWN_STEP');
       socket.off('HEIST_RESULT');

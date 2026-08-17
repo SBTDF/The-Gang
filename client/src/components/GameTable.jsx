@@ -36,7 +36,8 @@ export default function GameTable() {
     myRole,
     privateChallengeState,
     falseTrailAdvice,
-    sabotageClue,
+    crewVerificationRequest,
+    crewVerificationResult,
   } = useGameStore();
 
   const [showRules, setShowRules] = useState(false);
@@ -200,7 +201,7 @@ export default function GameTable() {
   };
 
   const handleNextHeist = () => {
-    useGameStore.setState({ heistResult: null, showdownStep: null, falseTrailAdvice: null, sabotageClue: null });
+    useGameStore.setState({ heistResult: null, showdownStep: null, falseTrailAdvice: null, crewVerificationRequest: null, crewVerificationResult: null });
     socket.emit('NEXT_HEIST');
   };
 
@@ -267,7 +268,8 @@ export default function GameTable() {
         myRole={myRole}
         privateChallengeState={privateChallengeState}
         falseTrailAdvice={falseTrailAdvice}
-        sabotageClue={sabotageClue}
+        crewVerificationRequest={crewVerificationRequest}
+        crewVerificationResult={crewVerificationResult}
       />
 
       {/* Main game area */}

@@ -1,409 +1,95 @@
-# The Gang — Imposter Mode Design
+# The Gang - Imposter Mode Design
 
 ## Status
 
-This document describes the proposed design only. It is not an implementation plan that has been applied to the game yet.
+This document describes the implemented Imposter mode. Classic mode remains unchanged.
 
-The goal is to add a second game mode while preserving the existing Classic mode, poker rules, lobby flow, Socket.IO architecture, and Render deployment.
+## Core rules
 
-## 1. High-level concept
+Imposter mode adds one hidden Imposter to the existing poker/heist game. The server assigns the role when the host starts the match and sends it only through the private `YOUR_ROLE` event.
 
-Imposter mode is a hidden-role version of the existing cooperative poker heist.
+The Imposter still selects and confirms chips like every other player so they can blend in. The Imposter's chip and real hand are excluded from heist-success validation. Only the Crew hand order, sorted by the Crew-selected red chips, determines whether the heist succeeds.
 
-There is one secret Imposter and the remaining players are Crew members.
+The Crew wins after three successful heists. The Imposter wins after three failed heists. The identity is revealed only after the match ends. The Imposter's real hand is never shown to Crew players; Crew sees only the server-generated public decoy hand during showdown.
 
-The Imposter’s goal is to make the Crew fail heists while appearing to be a normal Crew member. The Crew’s goal is to complete three successful heists and identify the Imposter through their decisions, recommendations, and sabotage patterns.
+There is no in-game accusation or automatic suspicion indicator. If the Crew identifies the Imposter, they benefit by ignoring that player's recommendations and choosing trusted Crew players for coordination resources.
 
-The most important rule is:
+## Challenge catalog
 
-> The Imposter may participate in chip selection, but the Imposter’s chip and hand never determine whether the Crew ranking succeeds.
+There are exactly three Imposter challenges. Each challenge has exactly two independent buffs: one for the Imposter and one for the Crew. Both buffs are active together, affect different gameplay areas, and can progress independently. All three challenges may be active at the same time.
 
-This prevents the Imposter from simply selecting the wrong chip every round and making the game unwinnable by themselves.
+Every active challenge starts at Level 1 for both sides. After a successful Crew heist, that challenge's Imposter level increases, capped at Level 2. After a failed Crew heist, that challenge's Crew level increases, capped at Level 2. The resulting levels apply to the next heist. Uses reset at the start of every heist.
 
-## 2. Game modes
+### 1. Open Book
 
-### Classic mode
+Open Book is explicitly an Imposter-side information advantage paired with a separate Crew board-information advantage.
 
-Classic mode remains unchanged:
+#### Imposter buff - Crew Hand Recon
 
-- all players participate in chip ranking;
-- all players’ hands are included in showdown validation;
-- the existing ten cooperative challenges remain available;
-- the current vault/alarm rules remain unchanged.
+- Level 1: at the start of the next heist, the server randomly selects one Crew player and privately sends the Imposter that player's complete real hand.
+- Level 2: the Imposter privately receives every Crew player's complete real hand.
 
-### Imposter mode
+The Imposter is never included in this data. The hand data is never included in public `ROOM_STATE` or sent to Crew clients.
 
-Imposter mode uses:
+#### Crew buff - Community Forecast
 
-- one hidden Imposter;
-- Crew-only ranking validation;
-- Imposter sabotage abilities;
-- progressive Imposter and Crew buffs;
-- a separate Imposter challenge catalog; the first version contains three challenges and can later expand to ten.
+- Level 1: every Crew player privately receives one actual upcoming community card.
+- Level 2: every Crew player privately receives the next two actual community cards.
 
-Classic challenges and Imposter challenges should use separate IDs and definitions. They should not be mixed initially because their balance assumptions are different.
+The forecast does not alter the deck or board order. It is early information about the shared board, not a role reveal or a counter to Crew Hand Recon.
 
-## 3. Roles and victory conditions
+### 2. Blueprint
 
-At the moment the host starts an Imposter match:
+Blueprint separates private placement intelligence from Crew decision recovery.
 
-1. The server randomly selects one player as the Imposter.
-2. The selected player privately receives the Imposter role.
-3. Every other player privately receives the Crew role.
-4. The role remains fixed for all heists in that match.
+#### Imposter buff - Position Blueprint
 
-The role assignment must happen on the server. It must never be selected by the client or included in the normal public room state.
+- Level 1: the server randomly selects one Crew player; the Imposter privately sees that player's correct Crew-only position and ideal chip value.
+- Level 2: the Imposter privately sees the complete Crew-only ranking and ideal chip assignment, including a plausible public decoy slot for the Imposter.
 
-### Crew victory
+The ranking and assignment are generated server-side and never appear in public room state.
 
-The Crew wins when the room reaches three successful heists.
+#### Crew buff - Reroute
 
-### Imposter victory
+- Level 1: the Crew receives one use during the next heist.
+- Level 2: the Crew receives two uses during the next heist.
 
-The Imposter wins when the room reaches three failed heists.
+Each use asks the server to reopen one eligible, unconfirmed Crew decision in the current chip phase and replace it with a different legal available chip. The server chooses the affected Crew decision, so the request cannot probe hidden roles. The Imposter chip is never changed.
 
-The Imposter’s identity is revealed after the match ends, but the Imposter’s real hand is never shown to the other players.
+### 3. False Trail
 
-## 4. Chip selection and ranking
+False Trail separates private misinformation from peer coordination.
 
-The Imposter still participates visibly in normal chip selection:
+#### Imposter buff - Legal Decoy Suggestion
 
-- they select a legal chip;
-- their selection appears in the lobby/game state like everyone else’s;
-- they confirm their selection;
-- they can discuss and recommend chip assignments;
-- they can trade normally unless a challenge affects trading.
+- Level 1: once during the next heist, the Imposter may privately send one fixed alternative chip suggestion to a selected player.
+- Level 2: the Imposter may send two suggestions during separate chip decisions.
 
-However, when the server evaluates the result, it uses only Crew players:
+The server validates that the suggestion is a different legal chip currently available. The suggestion does not change the target's selection or room state and cannot spoof arbitrary system messages or Socket.IO events.
 
-```text
-Crew players
-→ sort by red chip
-→ compare Crew hands in that order
-→ success if every Crew comparison is valid
-```
+#### Crew buff - Crew Verification
 
-The Imposter’s chip position is ignored for success validation. The Imposter’s hand is also excluded from the comparison.
+- Level 1: the Crew receives one use during the next heist.
+- Level 2: the Crew receives two uses during the next heist.
 
-This means an Imposter can choose a suspicious chip, but that choice cannot directly fail the heist.
+A use requests a second player's review of a visible chip decision. The selected verifier may accept the choice or ask the player to reconsider. It does not reveal roles, provide a truth oracle, or change the chip automatically. The Crew can use suspicion and trust to choose whom to ask.
 
-The Imposter must instead influence the Crew into making a bad decision or use a sabotage ability that targets Crew information and coordination.
+## Privacy boundaries
 
-## 5. Why the Imposter still participates in chip selection
+The server owns role assignment, challenge progression, random target selection, private hands, forecasts, rankings, suggestions, and verification validation.
 
-The Imposter’s visible participation is important for deception.
+Public `ROOM_STATE` may include the selected mode, active challenge IDs, public chip selections, public decoy cards, and role-neutral public history. It must never include:
 
-They should be able to:
+- `imposterPlayerId` before game over;
+- the Imposter's real cards;
+- private Crew forecasts;
+- private Imposter hand or ranking intel;
+- private challenge levels or usage records that reveal a role.
 
-- make reasonable chip choices;
-- occasionally suggest a correct ranking;
-- make mistakes that look genuine;
-- appear helpful during trades and discussions;
-- save sabotage abilities for moments when suspicion is low.
+Role-specific challenge data is sent through `PRIVATE_CHALLENGE_STATE` only to the intended socket. Role assignment is sent through `YOUR_ROLE`. False Trail suggestions and Crew Verification requests/results use dedicated private Socket.IO events.
 
-If the Imposter deliberately chooses an obviously wrong chip every round, the Crew should quickly stop trusting them. Since the chip does not affect the actual ranking, this behavior is not an automatic win for the Imposter.
+## Lifecycle and reset rules
 
-## 6. Showdown presentation
+Challenge data is prepared after cards are dealt at the start of every heist. Private targets and forecasts are generated independently for that heist. Imposter and Crew usage counters reset for the next heist. Switching mode in the lobby and returning to the lobby clear role, private challenge data, usage state, verification requests, decoy cards, and public Imposter history.
 
-The existing Classic showdown is based on a sequential chip-order comparison. Showing the exact same presentation in Imposter mode could accidentally reveal that one player was excluded from validation.
-
-Imposter mode should therefore use a slightly different presentation:
-
-- reveal player hands normally;
-- do not expose the internal Crew-only comparison chain;
-- do not show which specific comparison caused a failure;
-- display a result such as `Crew alignment succeeded` or `Crew alignment failed`;
-- do not expose the private `imposterPlayerId` or `effectiveCrewOrder`.
-
-The Crew should see only the Imposter’s public decoy hand. The Imposter’s real cards remain private throughout the match and are not shown on the post-match screen. The UI should not state that the decoy hand was checked against a neighboring hand.
-
-After the match, the UI may reveal:
-
-- who the Imposter was;
-- which side won;
-- which sabotage challenges or buffs were used;
-- a short result summary.
-
-It should not reveal:
-
-- the Imposter’s real cards;
-- the difference between the real and decoy hands;
-- unnecessary internal ranking information.
-
-This keeps the post-match result focused and avoids cluttering the screen with information that is not needed to understand the outcome.
-
-## 7. How identifying the Imposter helps the Crew
-
-There should be no automatic `accuse` button or role-reveal function during the match.
-
-The advantage of identifying the Imposter should come from how the Crew plays:
-
-- ignore the Imposter’s ranking recommendations;
-- stop relying on the Imposter’s card evaluations;
-- avoid giving the Imposter control over important trades;
-- require trusted Crew players to confirm important decisions;
-- use Crew information and planning resources around the suspected player;
-- watch for sabotage timing and misleading advice.
-
-The game should support this with a generic mechanic rather than an accusation mechanic.
-
-### Crew Plan
-
-The Crew can use a limited `Crew Plan` or `Trusted Plan` resource on any player.
-
-It is not labeled as an anti-Imposter action and does not reveal anyone’s role.
-
-Possible uses include:
-
-- designating a trusted player as the primary planner for a chip phase;
-- requiring a second Crew confirmation for an important decision;
-- allowing the Crew to submit a backup plan for a critical ranking decision;
-- protecting one decision from being influenced by a suspicious recommendation.
-
-If the Crew has identified the Imposter, they can avoid using that player as the planner. If they are wrong, they may waste a limited resource or follow the wrong player.
-
-This makes early identification valuable without turning it into a formal accusation system.
-
-## 8. Imposter sabotage philosophy
-
-The Imposter should sabotage Crew decision-making rather than directly change the final result.
-
-Sabotage should generally:
-
-- obscure information;
-- create uncertainty;
-- make communication less reliable;
-- pressure the Crew into a rushed decision;
-- introduce misleading but plausible evidence;
-- make the Crew’s own ranking more difficult.
-
-Sabotage should not:
-
-- directly add an alarm;
-- directly remove vault progress;
-- force an automatic failed heist;
-- allow illegal chip selections;
-- overwrite arbitrary room state from the client;
-- make the Imposter’s own chip capable of failing the heist by itself.
-
-The server should limit every sabotage action by phase, target, usage count, and challenge rules.
-
-## 9. Challenge-based progressive buffs
-
-The progression belongs to the active challenges. There are no selectable Intel or Countermeasure paths.
-
-Each challenge contains exactly:
-
-- one Imposter buff that progresses when the Crew wins a heist;
-- one Crew buff that progresses when the Imposter wins a heist.
-
-The host activates any combination of the available challenges in the lobby before the match starts. All three first-version challenges may be active simultaneously. There is no incompatibility map between them.
-
-Each active challenge tracks its own levels:
-
-```text
-Crew heist success
-→ every active challenge increases its Imposter buff level
-
-Crew heist failure
-→ every active challenge increases its Crew buff level
-```
-
-Level 1 applies after the first relevant result. Level 2 applies after the second relevant result. The buff applies to the next heist and is not chosen by either side.
-
-### Challenge 1 — Open Book
-
-This challenge is about increasingly powerful hand information.
-
-#### Imposter progression
-
-- Level 1: privately see the complete real hand of one chosen Crew player during the next heist.
-- Level 2: privately see the complete real hands of every Crew player during the next heist.
-
-#### Crew progression
-
-- Level 1: every Crew player privately sees the complete real hand of one chosen player during the next heist.
-- Level 2: every Crew player privately sees the complete real hands of every player during the next heist.
-
-The selected player may be the Imposter, but the information must not identify their role. This gives both sides meaningful information without directly canceling the other side’s buff.
-
-### Challenge 2 — Blueprint
-
-This challenge is about knowing how hands should be arranged without changing the server’s normal ranking rules.
-
-#### Imposter progression
-
-- Level 1: privately see the correct Crew-only hand position and ideal chip placement for one chosen Crew player.
-- Level 2: privately see the complete correct Crew-only ranking and ideal chip assignment.
-
-#### Crew progression
-
-- Level 1: every Crew player privately receives one accurate hand-strength relationship or placement clue.
-- Level 2: every Crew player privately receives a complete server-generated recommended chip assignment for the next heist.
-
-The Crew recommendation contains a plausible position for every player, including the Imposter’s decoy position. It is presented as a complete team plan and does not expose which player is excluded from real ranking validation.
-
-### Challenge 3 — False Trail
-
-This challenge gives the Imposter an active deception tool and gives the Crew progressively better evidence about sabotage.
-
-#### Imposter progression
-
-- Level 1: once during the next heist, privately send one misleading in-game recommendation to a chosen Crew player through the dedicated advice interface.
-- Level 2: use the misleading recommendation twice during the next heist, on separate decisions.
-
-The Imposter cannot spoof arbitrary system messages or Socket.IO events. The advice must use a clearly defined in-game message type so it can be validated and logged by the server.
-
-#### Crew progression
-
-- Level 1: after a sabotage resolves, the Crew receives one truthful clue about its category, such as chip, card, trade, or timing.
-- Level 2: the Crew receives the category plus the affected phase or decision type.
-
-These clues do not identify the Imposter or undo the sabotage. They help the Crew recognize patterns and stop trusting suspicious advice.
-
-### Simultaneous activation
-
-If all three challenges are active, all three progression tracks operate at the same time. For example, after one successful Crew heist, the Imposter may gain Level 1 Open Book, Level 1 Blueprint, and Level 1 False Trail simultaneously.
-
-This is intentional. The lobby should clearly show each challenge as `ACTIVE` or `DISABLED`, and the host should be able to toggle them before starting the game.
-
-The first version should cap each challenge at Level 2. The three-challenge set can later expand to ten challenges once the interaction between simultaneous progression tracks has been playtested.
-
-The Imposter’s buffs and the Crew’s buffs should be sent privately by the server and should never be included in public `ROOM_STATE`.
-
-## 11. Private and public state
-
-The server would need separate public and private state.
-
-Private state may include:
-
-```js
-room.imposterPlayerId
-room.imposterState
-room.imposterCharges
-room.challengeProgress[challengeId].imposterLevel
-room.challengeProgress[challengeId].crewLevel
-```
-
-Public state may include:
-
-```js
-room.gameMode
-room.imposterChallengeIds
-room.publicSabotageHistory
-```
-
-The following must never be included in normal `ROOM_STATE`:
-
-- `imposterPlayerId`;
-- the identity of the player who used sabotage;
-- private Imposter information;
-- internal Crew-only ranking order;
-- private progression details that reveal the role.
-
-The server should send role-specific information through a private event such as `YOUR_ROLE`.
-
-## 12. Proposed Socket.IO flow
-
-### Starting a match
-
-```text
-START_GAME
-→ server verifies the host
-→ server assigns the Imposter
-→ server sends YOUR_ROLE privately
-→ server broadcasts public ROOM_STATE
-```
-
-### Imposter action
-
-```text
-IMPOSTER_ACTION
-→ server verifies sender is the Imposter
-→ server validates phase, challenge, target, and remaining uses
-→ server applies the sabotage
-→ server broadcasts a role-neutral public result
-→ server broadcasts updated ROOM_STATE
-```
-
-### Match result
-
-```text
-GAME_OVER
-→ winner is CREW or IMPOSTER
-→ Imposter identity is revealed
-→ final buffs and sabotage history can be summarized
-→ Imposter’s real hand remains private
-```
-
-## 13. Architecture boundaries
-
-The first implementation should not require:
-
-- a database;
-- Redis;
-- persistent role storage;
-- multi-instance Socket.IO support;
-- a new deployment architecture;
-- changes to Classic mode’s game engine behavior.
-
-The current in-memory room architecture is sufficient for the existing single-instance Render deployment.
-
-## 14. Recommended implementation order
-
-1. Add `CLASSIC` and `IMPOSTER` room modes.
-2. Add server-side role assignment and private role events.
-3. Make Imposter chip and hand data irrelevant to ranking validation.
-4. Add the Imposter-mode showdown result flow without exposing the Crew-only ranking.
-5. Add one basic sabotage ability.
-6. Add progressive Imposter and Crew buffs.
-7. Add the three first-version Imposter challenges with simultaneous activation.
-8. Expand the catalog toward ten challenges only after the three-challenge combinations are balanced.
-9. Add tests for role secrecy, Crew-only ranking, sabotage validation, simultaneous challenges, and progression.
-10. Playtest balance before adding more active abilities.
-
-## 15. Main risks to resolve before implementation
-
-### Showdown information leakage
-
-The UI must not reveal that one player was excluded from ranking. This is the largest technical risk.
-
-### Imposter buffs becoming too strong
-
-Seeing private Crew cards after every successful heist could become overwhelming if the Imposter receives too much information too quickly. The number of cards and buff levels should be capped.
-
-### Crew buffs becoming direct counters
-
-Crew compensation should remain useful but should not undo a specific sabotage. It should improve information, coordination, or hand quality instead.
-
-### Role discovery being too weak
-
-If the Imposter’s sabotage has no visible consequences, the Crew will have no way to reason about the role. Sabotage effects should leave public, role-neutral evidence without identifying the user automatically.
-
-### Reconnection
-
-The current application does not fully restore player identity across Socket.IO reconnects. Imposter mode should preserve the existing behavior initially rather than introduce persistence as part of this feature.
-
-## Summary
-
-The proposed mode is a hidden-role social deduction layer over the existing poker game:
-
-```text
-Imposter chip and hand
-        ↓
-excluded from success ranking
-
-Crew chip and hand ranking
-        ↓
-determines heist success
-
-Imposter sabotage and deception
-        ↓
-tries to make Crew players fail among themselves
-
-Crew identification and coordination
-        ↓
-reduces the Imposter’s influence
-```
-
-This gives the Imposter a reason to stay hidden, gives the Crew a reason to identify them early, prevents unilateral chip griefing, and keeps the existing Classic mode intact.
+The existing in-memory room and single-instance Socket.IO architecture are sufficient. No database, Redis, persistence, or multi-instance changes are required for this mode.

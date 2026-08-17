@@ -10,27 +10,26 @@ export const IMPOSTER_CHALLENGE_DEFS = [
     id: 'openBook',
     num: 1,
     name: 'Open Book',
-    desc: 'The winning side gains increasingly powerful private hand information for the next heist.',
+    desc: 'The Imposter gains private Crew-hand intel while the Crew gets an early look at the community board.',
+    imposterBuff: 'Crew Hand Recon',
+    crewBuff: 'Community Forecast',
   },
   {
     id: 'blueprint',
     num: 2,
     name: 'Blueprint',
-    desc: 'The winning side gains increasingly powerful private ranking and chip-placement information for the next heist.',
+    desc: 'The Imposter gains private placement intel while the Crew gets limited decision-recovery uses.',
+    imposterBuff: 'Position Blueprint',
+    crewBuff: 'Reroute',
   },
   {
     id: 'falseTrail',
     num: 3,
     name: 'False Trail',
-    desc: 'The Imposter can privately send misleading recommendations, while the Crew receives truthful sabotage evidence after failures.',
+    desc: 'The Imposter can send legal private decoys while the Crew gains limited peer-verification uses.',
+    imposterBuff: 'Legal Decoy Suggestion',
+    crewBuff: 'Crew Verification',
   },
-];
-
-export const IMPOSTER_ADVICE_DEFS = [
-  { id: 'higher', label: 'Recommend higher' },
-  { id: 'lower', label: 'Recommend lower' },
-  { id: 'agree', label: 'Recommend this position' },
-  { id: 'swap', label: 'Recommend a swap' },
 ];
 
 export function isImposterMode(room) {
@@ -54,10 +53,12 @@ export function createChallengeProgress(challengeIds = []) {
     challengeIds
       .filter(isImposterChallenge)
       .map((id) => [id, {
-        imposterLevel: 0,
-        crewLevel: 0,
+        imposterLevel: 1,
+        crewLevel: 1,
         adviceUsed: 0,
         adviceDecisionKeys: [],
+        rerouteUsed: 0,
+        verificationUsed: 0,
       }]),
   );
 }
@@ -80,6 +81,8 @@ export function resetChallengeUses(room) {
   for (const progress of Object.values(room.challengeProgress)) {
     progress.adviceUsed = 0;
     progress.adviceDecisionKeys = [];
+    progress.rerouteUsed = 0;
+    progress.verificationUsed = 0;
   }
 }
 
