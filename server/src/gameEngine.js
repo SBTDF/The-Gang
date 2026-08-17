@@ -539,6 +539,53 @@ export function processShowdownStep(room) {
   return { ok: true, step, continue: true };
 }
 
+export function buildLeaderboard(room) {
+  const entries = room.players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    chipValue: p.chips.red ?? null,
+    hand: evaluateBestHand(p.cards, room.communityCards),
+  }));
+
+  const handOrder = [...entries].sort((a, b) => {
+    const handDifference = compareHands(b.hand, a.hand);
+    if (handDifference !== 0) return handDifference;
+    return String(a.id).localeCompare(String(b.id));
+  });
+  const handPlacements = new Map();
+  const handTieCounts = new Map();
+  for (const entry of entries) {
+    handTieCounts.set(
+      entry.id,
+      entries.filter((other) => compareHands(entry.hand, other.hand) === 0).length,
+    );
+  }
+
+  let handPlacement = 0;
+  for (let index = 0; index < handOrder.length; index += 1) {
+    if (index === 0 || compareHands(handOrder[index].hand, handOrder[index - 1].hand) !== 0) {
+      handPlacement = index + 1;
+    }
+    handPlacements.set(handOrder[index].id, handPlacement);
+  }
+
+  return entries
+    .sort((a, b) => {
+      const chipA = a.chipValue ?? Number.POSITIVE_INFINITY;
+      const chipB = b.chipValue ?? Number.POSITIVE_INFINITY;
+      if (chipA !== chipB) return chipA - chipB;
+      const handDifference = compareHands(b.hand, a.hand);
+      if (handDifference !== 0) return handDifference;
+      return String(a.id).localeCompare(String(b.id));
+    })
+    .map((entry, index) => ({
+      ...entry,
+      placement: index + 1,
+      handPlacement: handPlacements.get(entry.id) ?? index + 1,
+      tied: (handTieCounts.get(entry.id) ?? 1) > 1,
+    }));
+}
+
 function finishShowdown(room, success) {
   if (hasChallenge(room, 'silentAlarm') && room.hiddenCommunityCardIndex != null && room.communityCards[room.hiddenCommunityCardIndex]) {
     room.communityCards[room.hiddenCommunityCardIndex] = {
@@ -549,15 +596,7 @@ function finishShowdown(room, success) {
   }
 
   room.guessPhase = null;
-  room.leaderboard = room.players
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      hand: evaluateBestHand(p.cards, room.communityCards),
-      placement: 0,
-    }))
-    .sort((a, b) => compareHands(b.hand, a.hand))
-    .map((entry, index) => ({ ...entry, placement: index + 1 }));
+  room.leaderboard = buildLeaderboard(room);
 
   if (success) {
     room.vault++;
@@ -598,6 +637,39 @@ export function startNextHeist(room) {
   room.showdownOrder = [];
   room.showdownIndex = 0;
   addLog(room, `Heist #${room.heistNumber} bắt đầu!`);
+  return { ok: true };
+}
+
+export function returnToLobby(room) {
+  if (![PHASES.HEIST_RESULT, PHASES.GAME_OVER].includes(room.gameState)) {
+    return { error: 'Cannot return to lobby during this phase' };
+  }
+
+  for (const player of room.players) {
+    player.cards = [];
+    player.chips = {};
+  }
+
+  room.gameState = PHASES.LOBBY;
+  room.deck = [];
+  room.communityCards = [];
+  room.currentChipColor = null;
+  room.availableChips = [];
+  room.lockedChips = new Set();
+  room.roundSelections = {};
+  room.roundConfirmed = {};
+  room.tradeOffer = null;
+  room.showdownOrder = [];
+  room.showdownIndex = 0;
+  room.lastHeistSuccess = null;
+  room.leaderboard = [];
+  room.guessPhase = null;
+  room.hiddenCommunityCardIndex = null;
+  room.vault = 0;
+  room.alarms = 0;
+  room.heistNumber = 1;
+  room.gameLog = [];
+
   return { ok: true };
 }
 
@@ -653,9 +725,14 @@ export function returnChipToCenter(room, playerId) {
   return { ok: true, returned: true, chipValue: selected };
 }
 
-export function confirmChipSelection(room, playerId) {
+export function confirmChipSelection(room, playerId, chipValue = null) {
   const color = room.currentChipColor;
   if (!color) return { error: 'Không có chip round này' };
+  if (room.roundSelections[playerId] == null && chipValue != null) {
+    const selection = selectChip(room, playerId, chipValue);
+    if (selection.error) return selection;
+  }
+
   if (room.roundSelections[playerId] == null) {
     return { error: 'Bạn chưa chọn chip' };
   }
@@ -712,6 +789,11 @@ export function respondToTrade(room, playerId, accept) {
 }
 
 export function selectChip(room, playerId, chipValue, targetPlayerId = null) {
+  const normalizedChipValue = Number(chipValue);
+  if (!Number.isInteger(normalizedChipValue)) {
+    return { error: 'Chip value is invalid' };
+  }
+
   const color = room.currentChipColor;
   if (!color) return { error: 'Không có chip round này' };
 
@@ -727,36 +809,36 @@ export function selectChip(room, playerId, chipValue, targetPlayerId = null) {
   }
 
   const available = room.availableChips || [];
-  if (!available.includes(chipValue)) {
+  if (!available.includes(normalizedChipValue)) {
     return { error: 'Chip không còn trong pool' };
   }
 
   const previous = room.roundSelections[playerId];
-  if (previous != null && previous !== chipValue) {
+  if (previous != null && previous !== normalizedChipValue) {
     room.availableChips.push(previous);
     room.availableChips.sort((a, b) => a - b);
   }
 
-  room.roundSelections[playerId] = chipValue;
-  room.availableChips = room.availableChips.filter((c) => c !== chipValue);
+  room.roundSelections[playerId] = normalizedChipValue;
+  room.availableChips = room.availableChips.filter((c) => c !== normalizedChipValue);
   room.roundConfirmed[playerId] = false;
 
-  if (hasChallenge(room, 'noiseSensor') && chipValue === 1) {
+  if (hasChallenge(room, 'noiseSensor') && normalizedChipValue === 1) {
     room.roundConfirmed[playerId] = true;
-    room.lockedChips.add(chipValue);
+    room.lockedChips.add(normalizedChipValue);
     addLog(room, `${player.name} chọn chip 1 sao — Noise Sensor tự động khóa và xác nhận.`);
   }
 
-  if (shouldLockChip(room, chipValue)) {
-    room.lockedChips.add(chipValue);
-    const reason = chipValue === 1 ? 'Noise Sensor' : 'Ventilation Shaft';
-    addLog(room, `Chip ${chipValue} bị khóa (${reason})`);
+  if (shouldLockChip(room, normalizedChipValue)) {
+    room.lockedChips.add(normalizedChipValue);
+    const reason = normalizedChipValue === 1 ? 'Noise Sensor' : 'Ventilation Shaft';
+    addLog(room, `Chip ${normalizedChipValue} bị khóa (${reason})`);
   }
 
-  addLog(room, `${player.name} chọn chip ${chipValue}`);
+  addLog(room, `${player.name} chọn chip ${normalizedChipValue}`);
 
   const ready = allPlayersConfirmed(room);
-  return { ok: true, allReady: ready, selectedChip: chipValue };
+  return { ok: true, allReady: ready, selectedChip: normalizedChipValue };
 }
 
 export function sanitizeRoomForClient(room, viewerId) {

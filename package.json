@@ -16,6 +16,7 @@
     "install:all": "npm ci --include=dev",
     "build": "npm run build --workspace client",
     "build:all": "npm run build --workspace client",
+    "test": "node --test server/src/chipRoundRules.test.mjs server/src/gameEngine.challenge.test.mjs server/src/handEvaluator.test.mjs client/src/components/GameTable.challengeVote.test.mjs",
     "start": "node server/index.js"
   }
 }

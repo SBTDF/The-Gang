@@ -32,7 +32,6 @@ export default function GameTable() {
     selectedChip,
     setSelectedChip,
     emotes,
-    reset,
   } = useGameStore();
 
   const [showRules, setShowRules] = useState(false);
@@ -43,12 +42,14 @@ export default function GameTable() {
   const [challengeVote, setChallengeVote] = useState({ cardRank: null, handRank: null });
   const [challengeLocked, setChallengeLocked] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [selectedChipColor, setSelectedChipColor] = useState(null);
 
   if (!room) return null;
 
   const { players, communityCards, gameState, currentChipColor, availableChips, lockedChips } = room;
   const guessPhase = room?.guessPhase;
-  const myRoundChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
+  const localRoundChoice = selectedChipColor === currentChipColor ? selectedChip : null;
+  const myRoundChoice = room.roundSelections?.[myId] ?? localRoundChoice ?? null;
   const myConfirmed = !!room.roundConfirmed?.[myId];
   const confirmedCount = Object.values(room.roundConfirmed || {}).filter(Boolean).length;
   const tradePlayers = room.tradeOffer ? new Set([room.tradeOffer.fromPlayerId, room.tradeOffer.toPlayerId]) : new Set();
@@ -75,6 +76,11 @@ export default function GameTable() {
     });
     setChallengeLocked(Boolean(myVote.confirmed));
   }, [guessPhase]);
+
+  useEffect(() => {
+    setSelectedChip(null);
+    setSelectedChipColor(null);
+  }, [currentChipColor, setSelectedChip]);
 
   const opponents = players.filter((p) => p.id !== myId);
   const me = players.find((p) => p.id === myId);
@@ -121,22 +127,26 @@ export default function GameTable() {
 
     if (selectedChip === value && !targetPlayerId) {
       setSelectedChip(null);
+      setSelectedChipColor(null);
       return;
     }
 
     if (targetPlayerId) {
       socket.emit('SELECT_CHIP', { chipValue: value, targetPlayerId });
       setSelectedChip(null);
+      setSelectedChipColor(null);
       return;
     }
 
     setSelectedChip(value);
+    setSelectedChipColor(currentChipColor);
     socket.emit('SELECT_CHIP', { chipValue: value });
   };
 
   const handleReturnChip = () => {
     if (!isChipPhase || myConfirmed || myRoundChoice == null) return;
     setSelectedChip(null);
+    setSelectedChipColor(null);
     socket.emit('RETURN_CHIP');
   };
 
@@ -154,14 +164,23 @@ export default function GameTable() {
 
   const handleConfirmRoundChoice = () => {
     if (!isChipPhase) return;
-    socket.emit('CONFIRM_CHIP_SELECTION');
+    socket.emit('CONFIRM_CHIP_SELECTION', { chipValue: myRoundChoice });
+  };
+
+  const handleSelfChipClick = () => {
+    setSelectedChip(currentSelfChip);
+    setSelectedChipColor(currentChipColor);
+  };
+
+  const handleReturnToLobby = () => {
+    socket.emit('RETURN_TO_LOBBY');
   };
 
   const handleRequestTrade = (targetPlayerId) => {
     if (!isChipPhase || !currentChipColor || myConfirmed) return;
     if (room.tradeOffer && (room.tradeOffer.fromPlayerId === myId || room.tradeOffer.toPlayerId === myId)) return;
     if (room.tradeOffer && (room.tradeOffer.fromPlayerId === targetPlayerId || room.tradeOffer.toPlayerId === targetPlayerId)) return;
-    const myChoice = room.roundSelections?.[myId] ?? selectedChip ?? null;
+    const myChoice = myRoundChoice;
     const targetChoice = room.roundSelections?.[targetPlayerId] ?? null;
     if (myChoice == null || targetChoice == null) return;
     socket.emit('REQUEST_TRADE', {
@@ -193,8 +212,8 @@ export default function GameTable() {
         <p className="text-white/60 mb-2">
           Vault: {gameOver.vault}/3 — Alarm: {gameOver.alarms}/3
         </p>
-        <button type="button" onClick={reset} className="btn-primary mt-6">
-          Về menu
+        <button type="button" onClick={handleReturnToLobby} disabled={!isHost} className="btn-primary mt-6">
+          Return to lobby
         </button>
       </div>
     );
@@ -343,6 +362,11 @@ export default function GameTable() {
                 <button type="button" onClick={handleNextHeist} className="btn-primary">
                   Heist tiếp theo
                 </button>
+                {isHost && (
+                  <button type="button" onClick={handleReturnToLobby} className="btn-secondary">
+                    Return to lobby
+                  </button>
+                )}
                 {!isHost && (
                   <p className="text-white/50 text-sm animate-pulse">Chờ host...</p>
                 )}
@@ -498,7 +522,7 @@ export default function GameTable() {
                     value={currentSelfChip}
                     color={currentChipColor}
                     small
-                    onClick={() => setSelectedChip(currentSelfChip)}
+                    onClick={handleSelfChipClick}
                     selected={selectedChip === currentSelfChip}
                   />
                 )}
@@ -571,12 +595,22 @@ export default function GameTable() {
           <div className="space-y-2">
             {room.leaderboard.map((entry) => {
               const highlightKeys = getHighlightCardKeys(entry.hand);
+              const chipStrength = entry.chipValue === 1
+                ? 'Weakest'
+                : entry.chipValue === players.length
+                  ? 'Strongest'
+                  : 'Middle';
               return (
                 <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
                   <div className="mb-1 flex items-start justify-between gap-2 text-xs">
-                    <span className="min-w-0 flex-1 break-words text-white/80">#{entry.placement} {entry.name}</span>
+                    <span className="min-w-0 flex-1 break-words text-white/80">
+                      Chip {entry.chipValue ?? '—'} ({chipStrength}) · {entry.name}
+                    </span>
                     <span className="max-w-[45%] shrink-0 text-right text-gold">{entry.hand?.name || 'Unknown'}</span>
                   </div>
+                  <p className="mb-1 text-[10px] text-white/50">
+                    {entry.tied ? `Tied hand #${entry.handPlacement}` : `Hand rank #${entry.handPlacement}`}
+                  </p>
                   {(entry.hand?.combo || []).length > 0 && (
                     <div className="flex gap-1.5">
                       {(entry.hand.combo || []).map((card, idx) => (

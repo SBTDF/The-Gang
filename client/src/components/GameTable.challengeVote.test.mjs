@@ -10,3 +10,9 @@ test('GameTable defines challenge vote state for Retina/Fingerprint voting', () 
   assert.match(source, /const \[challengeVote, setChallengeVote\] = useState\(\{\s*cardRank:\s*null,\s*handRank:\s*null\s*\}\);/s, 'Challenge vote state should be initialized before submission.');
   assert.match(source, /socket\.emit\('SUBMIT_GUESS'/, 'GameTable should submit votes through the server event.');
 });
+
+test('GameTable scopes local chip drafts to the active phase and confirms the server value', () => {
+  assert.match(source, /selectedChipColor/);
+  assert.match(source, /selectedChipColor === currentChipColor/);
+  assert.match(source, /socket\.emit\('CONFIRM_CHIP_SELECTION', \{ chipValue: myRoundChoice \}\)/);
+});

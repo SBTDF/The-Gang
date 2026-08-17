@@ -25,7 +25,9 @@ export default function App() {
 
     socket.on('ROOM_STATE', (room) => {
       setRoom(room);
-      if (room.gameState !== 'LOBBY') {
+      if (room.gameState === 'LOBBY') {
+        useGameStore.setState({ screen: 'lobby', gameOver: null, heistResult: null, showdownStep: null });
+      } else {
         useGameStore.setState({ screen: 'game' });
       }
       if (room.gameState === 'HEIST_RESULT' && room.lastHeistSuccess != null) {

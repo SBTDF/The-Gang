@@ -19,6 +19,7 @@ import {
   processShowdownStep,
   getShowdownStep,
   startNextHeist,
+  returnToLobby,
   submitGuess,
   PHASES,
 } from './src/gameEngine.js';
@@ -159,11 +160,11 @@ io.on('connection', (socket) => {
     broadcastRoom(code);
   });
 
-  socket.on('CONFIRM_CHIP_SELECTION', () => {
+  socket.on('CONFIRM_CHIP_SELECTION', ({ chipValue } = {}) => {
     const found = getRoomBySocket(socket.id);
     if (!found) return;
     const { code, room } = found;
-    const result = confirmChipSelection(room, socket.id);
+    const result = confirmChipSelection(room, socket.id, chipValue);
     if (result.error) {
       socket.emit('ERROR', { message: result.error });
       return;
@@ -244,6 +245,22 @@ io.on('connection', (socket) => {
     startNextHeist(room);
     broadcastRoom(code);
     for (const p of room.players) sendPrivateCards(code, p.id);
+  });
+
+  socket.on('RETURN_TO_LOBBY', () => {
+    const found = getRoomBySocket(socket.id);
+    if (!found) return;
+    const { code, room } = found;
+    if (room.hostId !== socket.id) {
+      socket.emit('ERROR', { message: 'Chá»‰ host má»›i cÃ³ thá»ƒ quay vá» lobby' });
+      return;
+    }
+    const result = returnToLobby(room);
+    if (result.error) {
+      socket.emit('ERROR', { message: result.error });
+      return;
+    }
+    broadcastRoom(code);
   });
 
   socket.on('SET_CHALLENGES', ({ challenges }) => {
